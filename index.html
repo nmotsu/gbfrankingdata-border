@@ -319,8 +319,13 @@ async function init() {
     await loadBorders(currentEventId);
   }
 
-  // 静的モードではバックリンク調整
-  if (window.__STATIC_MODE__ && window.__STATIC_INDEX_URL__) {
+  // バックリンク調整
+  if (window.__BORDER_SITE__) {
+    // border.gbfranking.com では非表示
+    const bl = document.getElementById('back-link');
+    if (bl) bl.style.display = 'none';
+  } else if (window.__STATIC_MODE__ && window.__STATIC_INDEX_URL__) {
+    // ev*.gbfranking.com/border.html ではトップページへ
     document.getElementById('back-link').href = window.__STATIC_INDEX_URL__;
   }
 
@@ -690,26 +695,23 @@ function renderChart() {
         const predValue = Math.max(pred.predicted, lastHonor);
         predInfo.push(`${TIER_LABELS[tier]}: ${numFmt(predValue)}（+${numFmt(pred.avgSpeed)}/20分）`);
 
-        // モバイルではグラフに予測線を追加しない（#predict-infoのテキストのみ）
-        if (!isMobile) {
-          const lastTime = data[data.length - 1].captured_at;
-          const lastIdx = labels.indexOf(lastTime);
-          if (lastIdx >= 0) {
-            const predValues = new Array(labels.length).fill(null);
-            predValues[lastIdx] = lastHonor;
-            predValues.push(predValue);
-            datasets.push({
-              label: `${TIER_LABELS[tier]}(予測)`,
-              data: predValues,
-              borderColor: TIER_COLORS[tier],
-              backgroundColor: 'transparent',
-              pointRadius: [0, 3],
-              borderWidth: 1.5,
-              borderDash: [6, 4],
-              tension: 0,
-              spanGaps: true,
-            });
-          }
+        const lastTime = data[data.length - 1].captured_at;
+        const lastIdx = labels.indexOf(lastTime);
+        if (lastIdx >= 0) {
+          const predValues = new Array(labels.length).fill(null);
+          predValues[lastIdx] = lastHonor;
+          predValues.push(predValue);
+          datasets.push({
+            label: `${TIER_LABELS[tier]}(予測)`,
+            data: predValues,
+            borderColor: TIER_COLORS[tier],
+            backgroundColor: 'transparent',
+            pointRadius: [0, 3],
+            borderWidth: 1.5,
+            borderDash: [6, 4],
+            tension: 0,
+            spanGaps: true,
+          });
         }
       }
     }
@@ -805,9 +807,9 @@ function renderChart() {
     }
   }
 
-  // 予測ラベル追加（予測線がある場合、最後にラベルを1つ追加 / PCのみ）
-  if (showPred && predInfo.length && !isMobile) {
-    shortLabels.push('予測(1日後)');
+  // 予測ラベル追加（予測線がある場合、最後にラベルを1つ追加）
+  if (showPred && predInfo.length) {
+    shortLabels.push(isMobile ? '予測' : '予測(1日後)');
     // 予測線を持たない通常データセットにnullを追加
     for (const ds of datasets) {
       if (!ds.label?.includes('(予測)') && ds.data.length === labels.length) {
