@@ -630,9 +630,11 @@ function renderCompareToggles() {
   if (!others.length) { wrap.innerHTML = '<span style="font-size:11px;color:#4a5568">他の古戦場がありません</span>'; return; }
   wrap.innerHTML = others.map(e => {
     const active = compareEventIds.has(e.id);
+    const disabled = chartType === 'speed' && isSpeedDisabled(e);
     // モバイルは短縮名（年を省略: "2025年11月 風古戦場" → "11月 風古戦場"）
     const isMobile = window.innerWidth < 640;
     const displayName = isMobile ? e.name.replace(/^\d{4}年/, '') : e.name;
+    if (disabled) return `<button class="cmp-btn" disabled style="opacity:0.3;cursor:not-allowed" title="集計ミスのため20分速は表示できません">${displayName}</button>`;
     return `<button class="cmp-btn ${active ? 'active' : ''}" onclick="toggleCompareEvent(${e.id})">${displayName}</button>`;
   }).join('');
   // アクティブ比較数を表示
@@ -868,6 +870,17 @@ function setChartType(type) {
   document.getElementById(`ct-${type}`)?.classList.add('active');
   const originCtrl = document.getElementById('honor-origin-ctrl');
   if (originCtrl) originCtrl.style.display = type === 'honor' ? 'flex' : 'none';
+  // 20分速切替時、集計ミスイベントを比較から除外
+  if (type === 'speed') {
+    for (const eid of [...compareEventIds]) {
+      const ev = loadedEvents.find(e => e.id === eid);
+      if (ev && isSpeedDisabled(ev)) {
+        compareEventIds.delete(eid);
+        delete compareDataMap[eid];
+      }
+    }
+  }
+  renderCompareToggles();
   renderChart();
 }
 
@@ -1020,6 +1033,7 @@ function renderChart() {
     const cmpAllData = compareDataMap[cmpEventId];
     if (!cmpAllData || !cmpAllData.length) continue;
     const cmpEvent = loadedEvents.find(e => e.id === cmpEventId);
+    if (isSpeed && isSpeedDisabled(cmpEvent)) continue;
     const cmpName = cmpEvent ? cmpEvent.name : `ID:${cmpEventId}`;
     const cmpStartDate = cmpEvent?.start_date;
     const dashPattern = CMP_DASHES[cmpIdx % CMP_DASHES.length];
