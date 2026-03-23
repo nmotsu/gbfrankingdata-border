@@ -79,10 +79,10 @@ window.__STATIC_CACHE__=JSON.parse(pako.inflate(u,{to:'string'}));
   .cmp-btn{padding:3px 8px;border-radius:5px;font-size:11px;cursor:pointer;background:#1e1e3f;border:1px solid #2d2d5e;color:#64748b;transition:all 0.15s;white-space:nowrap}
   .cmp-btn.active{background:#2d2d5e;color:#e2e8f0;border-color:#60a5fa}
   .cmp-btn:hover:not(.active){background:#252545;color:#94a3b8}
-  .legend-group{margin-bottom:4px}
-  .legend-group-title{font-size:10px;color:#64748b;margin-bottom:2px}
-  .legend-items{display:flex;flex-wrap:wrap;gap:6px}
-  .legend-item{display:flex;align-items:center;gap:4px;font-size:10px;color:#94a3b8;cursor:pointer;user-select:none}
+  .legend-group{margin-bottom:6px}
+  .legend-group-title{font-size:11px;color:#7dd3fc;margin-bottom:3px;font-weight:600}
+  .legend-items{display:flex;flex-wrap:wrap;gap:8px}
+  .legend-item{display:flex;align-items:center;gap:4px;font-size:11px;color:#cbd5e1;cursor:pointer;user-select:none}
   .legend-item:hover{color:#e2e8f0}
   .legend-item.hidden{opacity:0.3;text-decoration:line-through}
   .legend-swatch{flex-shrink:0}
@@ -381,7 +381,7 @@ window.__STATIC_CACHE__=JSON.parse(pako.inflate(u,{to:'string'}));
     <div class="chart-wrap" id="chart-area">
       <canvas id="border-chart" height="300"></canvas>
     </div>
-    <div id="predict-info" style="font-size:11px;color:#94a3b8;margin-top:6px"></div>
+    <div id="predict-info" style="font-size:11px;color:#94a3b8;margin-top:6px;overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch"></div>
     <div id="chart-legend" style="margin-top:8px"></div>
   </div>
 </div>
@@ -400,6 +400,8 @@ let currentEvent = null; // イベントオブジェクト全体
 let borderData = [];
 let compareEventIds = new Set();  // 比較対象イベントID（複数選択）
 let compareDataMap = {};          // { eventId: borderData[] }
+let refEventData = null;          // 予測用参照イベントデータ
+let refEvent = null;              // 予測用参照イベント情報
 let activeTiers = new Set([1, 10, 100, 1000]); // デフォルトは主要4順位帯
 let focusTier = null; // フォーカス中のティア（null = 全表示）
 let chartType = 'honor';
@@ -568,18 +570,18 @@ async function init() {
     await loadBorders(currentEventId);
   }
 
-  // TOP リンク設定
-  const topLink = document.getElementById('top-link');
-  if (topLink && window.__STATIC_MODE__ && window.__STATIC_INDEX_URL__) {
-    topLink.href = window.__STATIC_INDEX_URL__;
-  }
-  // ランキングリンク設定
-  updateRankingLink();
-
-  // ライブサーバーではTOPボタン不要
-  if (!window.__STATIC_MODE__) {
+  // ヘッダーボタン制御
+  if (window.__STATIC_MODE__) {
+    // GitHub版: TOPのみ表示、ランキング・ボーダー推移は不要
     const topLink = document.getElementById('top-link');
-    if (topLink) topLink.style.display = 'none';
+    if (topLink && window.__STATIC_INDEX_URL__) topLink.href = window.__STATIC_INDEX_URL__;
+    const rankLink = document.getElementById('ranking-link');
+    if (rankLink) rankLink.style.display = 'none';
+  } else {
+    // ライブサーバー: TOP不要、ランキングは表示
+    const topLink = document.getElementById('top-link');
+    if (topLink) topLink.remove();
+    updateRankingLink();
   }
 
   updateSpeedBtn();
@@ -591,6 +593,8 @@ async function init() {
 // ===== データ読み込み =====
 async function loadBorders(eventId) {
   borderData = await apiFetch(`/api/ranking/borders?event_id=${eventId}`) || [];
+  // 予測用参照イベントデータを自動読み込み
+  if (isPredictionNeeded(currentEvent)) await loadRefEventData();
   populateDaySelects();
   renderTable();
   renderChart();
@@ -756,32 +760,153 @@ function groupByTier(data) {
   return groups;
 }
 
-// ===== 予測（0〜7時の停止を考慮） =====
-function computePrediction(tierData) {
+// ===== 予測（過去イベント比率ベース + フォールバック） =====
+// 参照イベントの同時点→1日後・最終値の伸び率をティアごとに適用
+function computePrediction(tier, tierData) {
   if (tierData.length < 3) return null;
-  // 活動時間帯（7:00〜24:00）のデータのみで速度算出
+  const lastHonor = tierData[tierData.length - 1].honor;
+  const lastTime = tierData[tierData.length - 1].captured_at;
+  if (!lastHonor || !lastTime) return null;
+
+  // 過去イベント比率ベース予測
+  const ratioPred = computeRatioPrediction(tier, lastHonor, lastTime);
+
+  // フォールバック: 線形予測（過去データなし時）
+  const linearPred = computeLinearPrediction(tierData, lastHonor);
+
+  if (ratioPred) {
+    return {
+      predicted1d: ratioPred.predicted1d,
+      predictedFinal: ratioPred.predictedFinal,
+      method: 'ratio',
+      refName: refEvent?.name || '過去イベント',
+    };
+  }
+  if (linearPred) {
+    return {
+      predicted1d: linearPred.predicted1d,
+      predictedFinal: null,
+      method: 'linear',
+      refName: null,
+    };
+  }
+  return null;
+}
+
+// 過去イベント比率ベース予測
+function computeRatioPrediction(tier, lastHonor, lastTime) {
+  if (!refEventData || !refEvent?.start_date || !currentEvent?.start_date) return null;
+
+  const refGroups = groupByTier(refEventData);
+  const refTierData = refGroups[tier];
+  if (!refTierData || refTierData.length < 3) return null;
+
+  // 現在の相対キーを算出
+  const currentRelKey = getRelativeKey(lastTime, currentEvent.start_date);
+  if (!currentRelKey) return null;
+
+  // 参照イベントで同じ相対キーのデータを探す
+  let refAtSamePoint = null;
+  for (const row of refTierData) {
+    const rk = getRelativeKey(row.captured_at, refEvent.start_date);
+    if (rk === currentRelKey) { refAtSamePoint = row.honor; break; }
+  }
+  // 完全一致がなければ前後の最も近いポイントを探す
+  if (refAtSamePoint == null) {
+    let closest = null, closestDist = Infinity;
+    for (const row of refTierData) {
+      const rk = getRelativeKey(row.captured_at, refEvent.start_date);
+      if (!rk) continue;
+      // 相対キーの距離（日数+時間を数値化）
+      const dist = relKeyDistance(currentRelKey, rk);
+      if (dist < closestDist) { closestDist = dist; closest = row.honor; }
+    }
+    if (closest != null && closestDist <= 3) refAtSamePoint = closest; // 1時間以内のズレまで許容
+  }
+  if (!refAtSamePoint || refAtSamePoint <= 0) return null;
+
+  // 参照イベントの最終値
+  const refFinal = refTierData[refTierData.length - 1].honor;
+
+  // 参照イベントの1日後の値を探す
+  const oneDayLaterKey = advanceRelKey(currentRelKey, 1);
+  let refAt1dLater = null;
+  if (oneDayLaterKey) {
+    let closest = null, closestDist = Infinity;
+    for (const row of refTierData) {
+      const rk = getRelativeKey(row.captured_at, refEvent.start_date);
+      if (!rk) continue;
+      const dist = relKeyDistance(oneDayLaterKey, rk);
+      if (dist < closestDist) { closestDist = dist; closest = row.honor; }
+    }
+    if (closest != null && closestDist <= 3) refAt1dLater = closest;
+  }
+
+  // 比率を計算して適用
+  const ratioFinal = refFinal / refAtSamePoint;
+  const predictedFinal = Math.round(lastHonor * ratioFinal);
+
+  let predicted1d = null;
+  if (refAt1dLater != null) {
+    const ratio1d = refAt1dLater / refAtSamePoint;
+    predicted1d = Math.round(lastHonor * ratio1d);
+  }
+
+  return { predicted1d, predictedFinal };
+}
+
+// 相対キー間の距離（20分単位の差）
+function relKeyDistance(key1, key2) {
+  if (!key1 || !key2) return Infinity;
+  const parse = k => {
+    const m = k.match(/^d(\d+)_(\d{2}):(\d{2})$/);
+    if (!m) return null;
+    return parseInt(m[1]) * 72 + parseInt(m[2]) * 3 + parseInt(m[3]) / 20; // 20分単位
+  };
+  const v1 = parse(key1), v2 = parse(key2);
+  if (v1 == null || v2 == null) return Infinity;
+  return Math.abs(v1 - v2);
+}
+
+// 相対キーを1日進める
+function advanceRelKey(key, days) {
+  const m = key.match(/^d(\d+)_(\d{2}:\d{2})$/);
+  if (!m) return null;
+  return `d${parseInt(m[1]) + days}_${m[2]}`;
+}
+
+// 線形予測（フォールバック用）
+function computeLinearPrediction(tierData, lastHonor) {
   const activeData = tierData.filter(r => {
     const hh = parseInt(r.captured_at.substring(11, 13));
-    return hh >= 7; // 7時以降のデータのみ
+    return hh >= 7;
   });
   if (activeData.length < 3) return null;
 
   const speeds = [];
   for (let i = 1; i < activeData.length; i++) {
     const diff = activeData[i].honor - activeData[i - 1].honor;
-    if (diff >= 0) speeds.push(diff); // 負の差分は除外
+    if (diff >= 0) speeds.push(diff);
   }
   if (!speeds.length) return null;
 
-  // 直近の平均速度（活動時間帯のみ）
-  const recent = speeds.slice(-18); // 直近18回（6時間分）
+  const recent = speeds.slice(-18);
   const avgSpeed = recent.reduce((a, b) => a + b, 0) / recent.length;
-
-  // 残り活動スナップ数: 1日17時間（7:00〜24:00） = 51スナップ（20分×51=17h）
   const ACTIVE_SNAPS_PER_DAY = 51;
-  const lastHonor = tierData[tierData.length - 1].honor;
-  const predicted = lastHonor + Math.round(avgSpeed * ACTIVE_SNAPS_PER_DAY);
-  return { predicted, avgSpeed: Math.round(avgSpeed) };
+  return { predicted1d: lastHonor + Math.round(avgSpeed * ACTIVE_SNAPS_PER_DAY) };
+}
+
+// 参照イベント自動読み込み（直近の終了済みイベント）
+async function loadRefEventData() {
+  if (!currentEvent || !currentEvent.start_date) { refEventData = null; refEvent = null; return; }
+  // 現在のイベントより前の最新イベントを探す
+  const prev = loadedEvents.find(e =>
+    e.id !== currentEvent.id && e.start_date && e.start_date < currentEvent.start_date
+  );
+  if (!prev) { refEventData = null; refEvent = null; return; }
+  if (refEvent?.id === prev.id && refEventData) return; // 既に読み込み済み
+  refEvent = prev;
+  refEventData = await apiFetch(`/api/ranking/borders?event_id=${prev.id}`) || [];
 }
 
 // ===== テーブル描画 =====
@@ -792,7 +917,7 @@ function renderTable() {
   const groups = groupByTier(borderData);
   const showPred = isPredictionNeeded(currentEvent);
   let html = '<table><thead><tr><th>順位</th><th>現在貢献度</th><th>20分増</th>';
-  if (showPred) html += '<th>予測(1日後)</th>';
+  if (showPred) html += '<th>予測(1日後)</th><th>最終予測</th>';
   html += '</tr></thead><tbody>';
 
   for (const tier of ALL_TIERS) {
@@ -801,13 +926,17 @@ function renderTable() {
     const latest = data[data.length - 1];
     const prev = data.length >= 2 ? data[data.length - 2] : null;
     const diff = prev ? latest.honor - prev.honor : null;
-    const pred = showPred ? computePrediction(data) : null;
+    const pred = showPred ? computePrediction(tier, data) : null;
 
     html += `<tr>
       <td style="color:${TIER_COLORS[tier]}">${TIER_LABELS[tier]}</td>
       <td>${numFmt(latest.honor)}</td>
       <td class="${diff > 0 ? 'positive' : ''}">${diff != null ? '+' + numFmt(diff) : '-'}</td>`;
-    if (showPred) html += `<td class="pred-col">${pred ? numFmt(pred.predicted) : '-'}</td>`;
+    if (showPred) {
+      const p1d = pred?.predicted1d ? numFmt(pred.predicted1d) : '-';
+      const pFin = pred?.predictedFinal ? numFmt(pred.predictedFinal) : '-';
+      html += `<td class="pred-col">${p1d}</td><td class="pred-col">${pFin}</td>`;
+    }
     html += '</tr>';
   }
 
@@ -1003,25 +1132,24 @@ function renderChart() {
       });
     }
 
-    // 予測線（貢献度推移 & 開催中のみ & PCのみ）
+    // 予測線（貢献度推移 & 開催中のみ）
     if (showPred) {
       const fullData = groupByTier(borderData)[tier] || [];
-      const pred = computePrediction(fullData);
+      const pred = computePrediction(tier, fullData);
       if (pred) {
-        // 予測値は最後のデータ以上であること（下がらない）
         const lastHonor = data[data.length - 1].honor;
-        const predValue = Math.max(pred.predicted, lastHonor);
-        predInfo.push(`${TIER_LABELS[tier]}: ${numFmt(predValue)}（+${numFmt(pred.avgSpeed)}/20分）`);
-
         const lastTime = data[data.length - 1].captured_at;
         const lastIdx = labels.indexOf(lastTime);
-        if (lastIdx >= 0) {
-          const predValues = new Array(labels.length).fill(null);
-          predValues[lastIdx] = lastHonor;
-          predValues.push(predValue);
+
+        // 1日後予測線
+        if (pred.predicted1d && lastIdx >= 0) {
+          const predValue1d = Math.max(pred.predicted1d, lastHonor);
+          const predValues1d = new Array(labels.length).fill(null);
+          predValues1d[lastIdx] = lastHonor;
+          predValues1d.push(predValue1d);
           datasets.push({
-            label: `${TIER_LABELS[tier]}(予測)`,
-            data: predValues,
+            label: `${TIER_LABELS[tier]}(1日後)`,
+            data: predValues1d,
             borderColor: TIER_COLORS[tier],
             backgroundColor: 'transparent',
             pointRadius: [0, 3],
@@ -1029,7 +1157,39 @@ function renderChart() {
             borderDash: [6, 4],
             tension: 0,
             spanGaps: true,
+            _predType: '1d',
           });
+        }
+
+        // 最終予測線
+        if (pred.predictedFinal && lastIdx >= 0) {
+          const predValueFin = Math.max(pred.predictedFinal, lastHonor);
+          const predValuesFin = new Array(labels.length).fill(null);
+          predValuesFin[lastIdx] = lastHonor;
+          predValuesFin.push(null); // 1日後の位置はnull
+          predValuesFin.push(predValueFin);
+          datasets.push({
+            label: `${TIER_LABELS[tier]}(最終)`,
+            data: predValuesFin,
+            borderColor: TIER_COLORS[tier] + '88',
+            backgroundColor: 'transparent',
+            pointRadius: [0, 0, 4],
+            pointStyle: 'triangle',
+            borderWidth: 1,
+            borderDash: [2, 3],
+            tension: 0,
+            spanGaps: true,
+            _predType: 'final',
+          });
+        }
+
+        // 予測情報テキスト
+        const parts = [];
+        if (pred.predicted1d) parts.push(`1日後:${numFmt(pred.predicted1d)}`);
+        if (pred.predictedFinal) parts.push(`最終:${numFmt(pred.predictedFinal)}`);
+        if (parts.length) {
+          const methodTag = pred.method === 'ratio' ? '' : '(線形)';
+          predInfo.push(`${TIER_LABELS[tier]} ${parts.join(' / ')}${methodTag}`);
         }
       }
     }
@@ -1126,20 +1286,29 @@ function renderChart() {
     }
   }
 
-  // 予測ラベル追加（予測線がある場合、最後にラベルを1つ追加）
-  if (showPred && predInfo.length) {
-    shortLabels.push(isMobile ? '予測' : '予測(1日後)');
-    // 予測線を持たない通常データセットにnullを追加
-    for (const ds of datasets) {
-      if (!ds.label?.includes('(予測)') && ds.data.length === labels.length) {
-        ds.data.push(null);
+  // 予測ラベル追加（1日後 + 最終の2ラベル）
+  const has1d = datasets.some(ds => ds._predType === '1d');
+  const hasFinal = datasets.some(ds => ds._predType === 'final');
+  if (showPred && (has1d || hasFinal)) {
+    if (has1d) {
+      shortLabels.push(isMobile ? '1日後' : '予測(1日後)');
+      for (const ds of datasets) {
+        if (!ds._predType && ds.data.length === labels.length) ds.data.push(null);
+      }
+    }
+    if (hasFinal) {
+      shortLabels.push(isMobile ? '最終' : '最終予測');
+      for (const ds of datasets) {
+        if (!ds._predType && ds.data.length < shortLabels.length) ds.data.push(null);
+        if (ds._predType === '1d' && ds.data.length < shortLabels.length) ds.data.push(null);
       }
     }
   }
 
-  // 予測情報表示
+  // 予測情報テキスト表示
   const predEl = document.getElementById('predict-info');
-  predEl.textContent = predInfo.length ? '予測(1日後): ' + predInfo.join(' / ') : '';
+  const refLabel = refEvent ? `（参照: ${refEvent.name}）` : '';
+  predEl.textContent = predInfo.length ? `予測${refLabel} ${predInfo.join(' ｜ ')}` : '';
 
   // canvas サイズ
   const areaEl = document.getElementById('chart-area');
@@ -1211,12 +1380,17 @@ function renderCustomLegend(datasets) {
   const predItems = [];
   const cmpGroups = {}; // { eventName: items[] }
 
+  const pred1dItems = [];
+  const predFinItems = [];
+
   datasets.forEach((ds, idx) => {
     const label = ds.label || '';
-    if (label.includes('(予測)')) {
-      // 予測ラベルからティア名だけ取り出す: "1位(予測)" → "1位"
-      const shortLabel = label.replace('(予測)', '').trim();
-      predItems.push({ idx, ds, label: shortLabel });
+    if (ds._predType === '1d') {
+      const shortLabel = label.replace('(1日後)', '').trim();
+      pred1dItems.push({ idx, ds, label: shortLabel });
+    } else if (ds._predType === 'final') {
+      const shortLabel = label.replace('(最終)', '').trim();
+      predFinItems.push({ idx, ds, label: shortLabel });
     } else {
       const m = label.match(/^(.+?)\((.+)\)$/);
       if (m) {
@@ -1235,8 +1409,11 @@ function renderCustomLegend(datasets) {
   const mainName = currentEvent ? currentEvent.name : '現在のイベント';
   html += buildLegendGroup(mainName, mainItems);
 
-  if (predItems.length) {
-    html += buildLegendGroup('予測', predItems);
+  if (pred1dItems.length) {
+    html += buildLegendGroup('予測(1日後)', pred1dItems);
+  }
+  if (predFinItems.length) {
+    html += buildLegendGroup('最終予測', predFinItems);
   }
 
   for (const [evName, items] of Object.entries(cmpGroups)) {
@@ -1314,11 +1491,25 @@ function saveChartImage() {
   const range = fromDay && toDay && fromDay !== toDay ? ` ｜ ${fromDay} 〜 ${toDay}` : '';
   const title = `GBF古戦場ボーダー推移 ｜ ${eventName} ｜ ${typeLabel}${range}`;
 
-  // 凡例（アクティブなティアのみ）
-  const legendTiers = ALL_TIERS.filter(t => activeTiers.has(t));
-  const swatchSz = 10, legendH = legendTiers.length ? 24 : 0;
+  // 凡例情報を収集（画面上の凡例と同じグループ構造）
+  const legendGroups = [];
+  const mainName = currentEvent?.name || '現在のイベント';
+  const mainTiers = ALL_TIERS.filter(t => activeTiers.has(t));
+  if (mainTiers.length) {
+    legendGroups.push({ name: mainName, items: mainTiers.map(t => ({ color: TIER_COLORS[t], label: TIER_LABELS[t], dash: null })) });
+  }
+  // 比較イベント
+  for (const cmpId of compareEventIds) {
+    const cmpEv = loadedEvents.find(e => e.id === cmpId);
+    const cmpName = cmpEv ? cmpEv.name : `ID:${cmpId}`;
+    const cmpItems = mainTiers.map(t => ({ color: TIER_COLORS[t] + 'aa', label: TIER_LABELS[t], dash: true }));
+    if (cmpItems.length) legendGroups.push({ name: cmpName, items: cmpItems });
+  }
 
   const pad = 12, titleH = 28, footerH = 20;
+  // 凡例高さを計算（グループごとに1行）
+  const legendLineH = 18;
+  const legendH = legendGroups.length ? legendGroups.length * legendLineH + 8 : 0;
   const W = src.width + pad * 2;
   const H = src.height + titleH + legendH + footerH + pad * 2;
 
@@ -1337,25 +1528,45 @@ function saveChartImage() {
   // グラフ
   ctx.drawImage(src, pad, pad + titleH);
 
-  // 凡例
-  if (legendTiers.length) {
-    const ly = pad + titleH + src.height + 6;
-    ctx.font = '10px sans-serif';
-    let lx = pad;
-    for (const tier of legendTiers) {
-      ctx.fillStyle = TIER_COLORS[tier];
-      ctx.fillRect(lx, ly, swatchSz, swatchSz);
-      ctx.fillStyle = '#94a3b8';
-      const label = TIER_LABELS[tier];
-      ctx.fillText(label, lx + swatchSz + 3, ly + 9);
-      lx += swatchSz + 3 + ctx.measureText(label).width + 10;
+  // 凡例（グループごとにイベント名＋ティア色）
+  if (legendGroups.length) {
+    const swatchSz = 10;
+    let ly = pad + titleH + src.height + 8;
+    for (const grp of legendGroups) {
+      ctx.fillStyle = '#7dd3fc';
+      ctx.font = 'bold 10px sans-serif';
+      let lx = pad;
+      ctx.fillText(grp.name + ':', lx, ly + 9);
+      lx += ctx.measureText(grp.name + ':').width + 8;
+      ctx.font = '10px sans-serif';
+      for (const item of grp.items) {
+        // 色スウォッチ（破線の場合は枠線のみ）
+        if (item.dash) {
+          ctx.strokeStyle = item.color;
+          ctx.lineWidth = 1;
+          ctx.setLineDash([3, 2]);
+          ctx.beginPath();
+          ctx.moveTo(lx, ly + 4);
+          ctx.lineTo(lx + 16, ly + 4);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        } else {
+          ctx.fillStyle = item.color;
+          ctx.fillRect(lx, ly, swatchSz, swatchSz);
+        }
+        ctx.fillStyle = '#94a3b8';
+        const labelX = item.dash ? lx + 18 : lx + swatchSz + 3;
+        ctx.fillText(item.label, labelX, ly + 9);
+        lx = labelX + ctx.measureText(item.label).width + 10;
+      }
+      ly += legendLineH;
     }
   }
 
   // フッター
   ctx.fillStyle = '#374151';
   ctx.font = '10px sans-serif';
-  ctx.fillText('border.gbfranking.com', pad, H - 6);
+  ctx.fillText('gbfranking.com', pad, H - 6);
 
   const a = document.createElement('a');
   a.download = `border-${chartType}-${new Date().toLocaleDateString('sv-SE')}.png`;
