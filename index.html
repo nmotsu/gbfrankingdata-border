@@ -92,7 +92,7 @@ window.__STATIC_CACHE__=JSON.parse(pako.inflate(u,{to:'string'}));
   .collapse-toggle:hover{color:#94a3b8;background:#1a1a30}
   .collapse-toggle .arrow{transition:transform 0.2s;display:inline-block}
   .collapse-toggle.collapsed .arrow{transform:rotate(-90deg)}
-  .collapsible-content{overflow:hidden;transition:max-height 0.25s ease}
+  .collapsible-content{overflow:hidden;transition:max-height 0.25s ease;max-height:none}
   .quick-btns{display:flex;gap:4px;margin-bottom:4px}
   .quick-btn{padding:2px 7px;border-radius:10px;font-size:10px;cursor:pointer;background:#1e1e3f;border:1px solid #2d2d5e;color:#64748b;transition:all 0.15s}
   .quick-btn:hover{background:#2d2d5e;color:#94a3b8}
@@ -120,8 +120,10 @@ window.__STATIC_CACHE__=JSON.parse(pako.inflate(u,{to:'string'}));
   /* サマリーカード (B-1) */
   .sum-tier-btn{padding:2px 8px;border-radius:10px;font-size:10px;cursor:pointer;border:1px solid;font-weight:600;transition:all 0.15s;opacity:0.4}
   .sum-tier-btn.on{opacity:1}
-  .summary-cards{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
-  .s-card{flex:1;min-width:100px;background:#0d0d22;border:1px solid #1e1e3f;border-radius:8px;padding:10px 12px}
+  .summary-cards{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px}
+  @media(min-width:480px){.summary-cards{grid-template-columns:repeat(3,1fr)}}
+  @media(min-width:768px){.summary-cards{grid-template-columns:repeat(auto-fill,minmax(130px,1fr))}}
+  .s-card{background:#0d0d22;border:1px solid #1e1e3f;border-radius:8px;padding:10px 12px}
   .s-card-tier{font-size:10px;font-weight:700;letter-spacing:0.05em;margin-bottom:4px}
   .s-card-honor{font-size:15px;font-weight:700;color:#e2e8f0;font-variant-numeric:tabular-nums}
   .s-card-diff{font-size:11px;color:#4ade80;margin-top:2px;font-variant-numeric:tabular-nums}
@@ -147,14 +149,6 @@ window.__STATIC_CACHE__=JSON.parse(pako.inflate(u,{to:'string'}));
       <a class="hdr-btn" href="/" id="top-link">TOP</a>
       <a class="hdr-btn hdr-btn-blue" href="/" id="ranking-link">ランキング</a>
       <button class="hdr-btn" id="howto-btn" onclick="document.getElementById('howto-modal').classList.add('open')">使い方</button>
-      <div style="position:relative">
-        <button class="hdr-btn" onclick="toggleBorderMenu(event)">…</button>
-        <div id="border-site-menu" class="site-menu">
-          <a href="https://gbfranking.com/privacy.html" target="_blank">プライバシーポリシー</a>
-          <a href="https://gbfranking.com/contact.html" target="_blank">お問い合わせ</a>
-          <a href="https://gbfranking.com/about.html" target="_blank">サイトについて</a>
-        </div>
-      </div>
     </div>
   </div>
 </div>
@@ -344,11 +338,16 @@ window.__STATIC_CACHE__=JSON.parse(pako.inflate(u,{to:'string'}));
   <div class="section">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
       <div class="section-title" style="margin-bottom:0">現在のボーダー値</div>
-      <div id="summary-tier-toggles" style="display:flex;flex-wrap:wrap;gap:3px"></div>
+      <div id="summary-tier-toggles" style="display:flex;flex-wrap:wrap;gap:3px;flex:1;min-width:0"></div>
+      <button class="collapse-toggle" id="border-table-toggle" onclick="toggleBorderTable()">
+        <span class="arrow" id="border-table-arrow">▼</span><span id="border-table-label">折りたたむ</span>
+      </button>
     </div>
     <div id="summary-cards-wrap" class="summary-cards"></div>
-    <div id="border-table-wrap"><div class="loading">イベントを選択してください</div></div>
-    <div id="predict-card-wrap"></div>
+    <div class="collapsible-content" id="border-table-content">
+      <div id="border-table-wrap"><div class="loading">イベントを選択してください</div></div>
+      <div id="predict-card-wrap"></div>
+    </div>
   </div>
 
   <!-- グラフ（個別ランキンググラフ風レイアウト） -->
@@ -1689,18 +1688,27 @@ function saveChartImage() {
 }
 
 // ===== サイトメニュー =====
-function toggleBorderMenu(e) {
-  e.stopPropagation();
-  const m = document.getElementById('border-site-menu');
-  m.style.display = m.style.display === 'block' ? 'none' : 'block';
+let _borderTableOpen = true;
+function toggleBorderTable() {
+  _borderTableOpen = !_borderTableOpen;
+  const content = document.getElementById('border-table-content');
+  const btn     = document.getElementById('border-table-toggle');
+  const arrow   = document.getElementById('border-table-arrow');
+  const label   = document.getElementById('border-table-label');
+  if (_borderTableOpen) {
+    content.style.maxHeight = content.scrollHeight + 'px';
+    setTimeout(() => { if (_borderTableOpen) content.style.maxHeight = 'none'; }, 260);
+    btn.classList.remove('collapsed');
+    arrow.style.transform = '';
+    label.textContent = '折りたたむ';
+  } else {
+    content.style.maxHeight = content.scrollHeight + 'px';
+    requestAnimationFrame(() => { content.style.maxHeight = '0'; });
+    btn.classList.add('collapsed');
+    arrow.style.transform = 'rotate(-90deg)';
+    label.textContent = '展開する';
+  }
 }
-function closeBorderMenu() {
-  document.getElementById('border-site-menu').style.display = 'none';
-}
-document.addEventListener('click', () => {
-  const m = document.getElementById('border-site-menu');
-  if (m) m.style.display = 'none';
-});
 
 // ===== 起動 =====
 init();
