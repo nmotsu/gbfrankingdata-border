@@ -630,6 +630,7 @@ async function init() {
 // ===== データ読み込み =====
 async function loadBorders(eventId) {
   borderData = await apiFetch(`/api/ranking/borders?event_id=${eventId}`) || [];
+  _cachedGroups = null; _cachedGroupsData = null;
   // 予測用参照イベントデータを自動読み込み
   if (isPredictionNeeded(currentEvent)) await loadRefEventData();
   populateDaySelects();
@@ -759,15 +760,19 @@ function populateDaySelects() {
   toSel.innerHTML = '';
   const startDate = currentEvent?.start_date || null;
   const isMobile = window.innerWidth < 640;
+  const fromOpts = [];
+  const toOpts = [];
   allDays.forEach((d) => {
     const periodName = startDate ? getGBFPeriodName(d + ' 12:00:00', startDate) : d;
     // モバイルは短縮形式（例: 6/24）、PCは「本戦2日目（2025-06-24）」
     const label = isMobile
       ? `${d.substring(5).replace('-', '/')}`
       : `${periodName}（${d}）`;
-    fromSel.innerHTML += `<option value="${d}">${label}</option>`;
-    toSel.innerHTML += `<option value="${d}">${label}</option>`;
+    fromOpts.push(`<option value="${d}">${label}</option>`);
+    toOpts.push(`<option value="${d}">${label}</option>`);
   });
+  fromSel.innerHTML = fromOpts.join('');
+  toSel.innerHTML = toOpts.join('');
   if (allDays.length) {
     fromSel.value = allDays[0];
     toSel.value = allDays[allDays.length - 1];
@@ -788,7 +793,10 @@ function getFilteredData(data) {
 }
 
 // ===== データ処理 =====
+let _cachedGroups = null;
+let _cachedGroupsData = null;
 function groupByTier(data) {
+  if (data === _cachedGroupsData && _cachedGroups) return _cachedGroups;
   const groups = {};
   for (const row of data) {
     if (!groups[row.rank_tier]) groups[row.rank_tier] = [];
@@ -797,6 +805,8 @@ function groupByTier(data) {
   for (const tier in groups) {
     groups[tier].sort((a, b) => a.captured_at.localeCompare(b.captured_at));
   }
+  _cachedGroupsData = data;
+  _cachedGroups = groups;
   return groups;
 }
 
@@ -1132,12 +1142,12 @@ function setChartType(type) {
 }
 
 // ===== グラフ描画 =====
-let _renderChartTimer = null;
-function renderChartDebounced() {
-  clearTimeout(_renderChartTimer);
-  _renderChartTimer = setTimeout(renderChart, 50);
-}
 function renderChart() {
+  if (window._borderTooltipDismiss) {
+    document.removeEventListener('touchstart', window._borderTooltipDismiss);
+    document.removeEventListener('click', window._borderTooltipDismiss);
+    window._borderTooltipDismiss = null;
+  }
   if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
   const filtered = getFilteredData(borderData);
   if (!filtered.length) return;
@@ -1571,6 +1581,7 @@ function startAutoRefresh() {
     _apiCache.clear(); // キャッシュクリア
     if (currentEventId) {
       borderData = await apiFetch(`/api/ranking/borders?event_id=${currentEventId}`) || [];
+      _cachedGroups = null; _cachedGroupsData = null;
       renderTable();
       renderChart();
     }
