@@ -32,8 +32,9 @@ window.__STATIC_CACHE__=JSON.parse(pako.inflate(u,{to:'string'}));
 </script>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
+  :root{--elem-color:#3b82f6;--elem-color-light:#60a5fa}
   body{background:#0b0b19;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}
-  .header{background:#0f0f23;border-bottom:1px solid #1a1a30;padding:10px 16px}
+  .header{background:#0f0f23;border-bottom:2px solid var(--elem-color);padding:10px 16px}
   .header-inner{max-width:1200px;margin:0 auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
   h1{font-size:1.1rem;color:#60a5fa;white-space:nowrap}
   select{background:#1e1e3f;color:#e2e8f0;border:1px solid #2d2d5e;border-radius:6px;padding:5px 10px;font-size:13px}
@@ -60,7 +61,7 @@ window.__STATIC_CACHE__=JSON.parse(pako.inflate(u,{to:'string'}));
   table{width:100%;border-collapse:collapse;font-size:13px}
   th{background:#1a1a30;color:#94a3b8;padding:6px 8px;text-align:right;font-weight:normal;font-size:11px}
   th:first-child{text-align:left}
-  td{padding:6px 8px;border-bottom:1px solid #1a1a2e;text-align:right}
+  td{padding:6px 8px;border-bottom:1px solid #1a1a2e;text-align:right;font-variant-numeric:tabular-nums}
   td:first-child{text-align:left;font-weight:600}
   tbody tr:nth-child(even){background:rgba(255,255,255,0.03)}
   .positive{color:#4ade80}
@@ -116,6 +117,24 @@ window.__STATIC_CACHE__=JSON.parse(pako.inflate(u,{to:'string'}));
     table{font-size:11px}
     th,td{padding:4px 6px}
   }
+  /* サマリーカード (B-1) */
+  .sum-tier-btn{padding:2px 8px;border-radius:10px;font-size:10px;cursor:pointer;border:1px solid;font-weight:600;transition:all 0.15s;opacity:0.4}
+  .sum-tier-btn.on{opacity:1}
+  .summary-cards{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+  .s-card{flex:1;min-width:100px;background:#0d0d22;border:1px solid #1e1e3f;border-radius:8px;padding:10px 12px}
+  .s-card-tier{font-size:10px;font-weight:700;letter-spacing:0.05em;margin-bottom:4px}
+  .s-card-honor{font-size:15px;font-weight:700;color:#e2e8f0;font-variant-numeric:tabular-nums}
+  .s-card-diff{font-size:11px;color:#4ade80;margin-top:2px;font-variant-numeric:tabular-nums}
+  .s-card-diff.zero{color:#64748b}
+  /* 予測カード (C-2) */
+  .predict-card{background:#0d0d22;border:1px solid #1e1e3f;border-radius:8px;padding:12px;margin-top:12px}
+  .predict-card-title{font-size:11px;font-weight:700;color:#94a3b8;margin-bottom:8px;letter-spacing:0.04em;text-transform:uppercase}
+  .predict-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:6px}
+  .predict-row{display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 0;border-bottom:1px solid #1a1a2e}
+  .predict-row:last-child{border-bottom:none}
+  .predict-tier{font-weight:700;min-width:60px}
+  .predict-val{font-variant-numeric:tabular-nums;color:#fbbf24}
+  .predict-final{font-variant-numeric:tabular-nums;color:#f59e0b;margin-left:auto}
 </style>
 <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6139585433722718" crossorigin="anonymous"></script>
 </head>
@@ -323,8 +342,13 @@ window.__STATIC_CACHE__=JSON.parse(pako.inflate(u,{to:'string'}));
 <div class="container">
   <!-- 現在のボーダー値 -->
   <div class="section">
-    <div class="section-title">現在のボーダー値</div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+      <div class="section-title" style="margin-bottom:0">現在のボーダー値</div>
+      <div id="summary-tier-toggles" style="display:flex;flex-wrap:wrap;gap:3px"></div>
+    </div>
+    <div id="summary-cards-wrap" class="summary-cards"></div>
     <div id="border-table-wrap"><div class="loading">イベントを選択してください</div></div>
+    <div id="predict-card-wrap"></div>
   </div>
 
   <!-- グラフ（個別ランキンググラフ風レイアウト） -->
@@ -541,6 +565,24 @@ function getStaticPageEventId() {
   return null;
 }
 
+// ===== 属性テーマ (B-2) =====
+const ELEMENT_THEMES = {
+  '火': { color: '#ef4444', light: '#f87171' },
+  '水': { color: '#3b82f6', light: '#60a5fa' },
+  '土': { color: '#d97706', light: '#f59e0b' },
+  '風': { color: '#22c55e', light: '#4ade80' },
+  '光': { color: '#eab308', light: '#fbbf24' },
+  '闇': { color: '#7c3aed', light: '#a78bfa' },
+};
+function applyElementTheme(eventName) {
+  let theme = { color: '#3b82f6', light: '#60a5fa' };
+  for (const [ch, t] of Object.entries(ELEMENT_THEMES)) {
+    if (eventName && eventName.includes(ch)) { theme = t; break; }
+  }
+  document.documentElement.style.setProperty('--elem-color', theme.color);
+  document.documentElement.style.setProperty('--elem-color-light', theme.light);
+}
+
 // ===== 初期化 =====
 async function init() {
   // Chart.js の読み込みとデータ取得を並列実行
@@ -567,6 +609,7 @@ async function init() {
     sel.value = defaultEvent.id;
     currentEventId = defaultEvent.id;
     currentEvent = defaultEvent;
+    applyElementTheme(defaultEvent.name || '');
     await loadBorders(currentEventId);
   }
 
@@ -586,6 +629,7 @@ async function init() {
 
   updateSpeedBtn();
   renderTierToggles();
+  renderSummaryTierToggles();
   renderCompareToggles();
   startAutoRefresh();
 }
@@ -596,7 +640,9 @@ async function loadBorders(eventId) {
   // 予測用参照イベントデータを自動読み込み
   if (isPredictionNeeded(currentEvent)) await loadRefEventData();
   populateDaySelects();
+  renderSummaryCards();
   renderTable();
+  renderPredictCard();
   renderChart();
 }
 
@@ -614,12 +660,13 @@ function updateRankingLink() {
 async function onEventChange() {
   currentEventId = document.getElementById('event-select').value;
   currentEvent = loadedEvents.find(e => e.id == currentEventId) || null;
+  applyElementTheme(currentEvent?.name || '');
   updateRankingLink();
   // 比較対象から現在のイベントを除外
   compareEventIds.delete(Number(currentEventId));
   delete compareDataMap[Number(currentEventId)];
   renderCompareToggles();
-  if (!currentEventId) { borderData = []; renderTable(); renderChart(); startAutoRefresh(); return; }
+  if (!currentEventId) { borderData = []; renderSummaryCards(); renderTable(); renderPredictCard(); renderChart(); startAutoRefresh(); return; }
 
   // 静的モード: ページ遷移
   if (window.__STATIC_MODE__ && window.__STATIC_EVENT_URLS__) {
@@ -909,16 +956,66 @@ async function loadRefEventData() {
   refEventData = await apiFetch(`/api/ranking/borders?event_id=${prev.id}`) || [];
 }
 
+// ===== サマリーカード (B-1) =====
+const SUMMARY_DEFAULT_TIERS = new Set([100, 2000, 100000]);
+let summaryActiveTiers = (() => {
+  try {
+    const saved = JSON.parse(localStorage.getItem('borderSummaryTiers'));
+    if (Array.isArray(saved)) return new Set(saved);
+  } catch {}
+  return new Set(SUMMARY_DEFAULT_TIERS);
+})();
+
+function saveSummaryTiers() {
+  try { localStorage.setItem('borderSummaryTiers', JSON.stringify([...summaryActiveTiers])); } catch {}
+}
+
+function renderSummaryTierToggles() {
+  const wrap = document.getElementById('summary-tier-toggles');
+  if (!wrap) return;
+  wrap.innerHTML = ALL_TIERS.map(tier => {
+    const on = summaryActiveTiers.has(tier);
+    const color = TIER_COLORS[tier];
+    return `<button class="sum-tier-btn${on ? ' on' : ''}"
+      style="color:${color};border-color:${color};background:${on ? color + '20' : 'transparent'}"
+      onclick="toggleSummaryTier(${tier})">${TIER_LABELS[tier]}</button>`;
+  }).join('');
+}
+
+function toggleSummaryTier(tier) {
+  if (summaryActiveTiers.has(tier)) summaryActiveTiers.delete(tier);
+  else summaryActiveTiers.add(tier);
+  saveSummaryTiers();
+  renderSummaryTierToggles();
+  renderSummaryCards();
+}
+
+function renderSummaryCards() {
+  const wrap = document.getElementById('summary-cards-wrap');
+  if (!wrap) return;
+  if (!borderData.length) { wrap.innerHTML = ''; return; }
+  const groups = groupByTier(borderData);
+  const cards = ALL_TIERS.filter(t => summaryActiveTiers.has(t)).map(tier => {
+    const data = groups[tier]; if (!data || !data.length) return null;
+    const latest = data[data.length - 1];
+    const prev = data.length >= 2 ? data[data.length - 2] : null;
+    const diff = prev ? latest.honor - prev.honor : null;
+    const color = TIER_COLORS[tier] || '#94a3b8';
+    const diffHtml = diff != null
+      ? `<div class="s-card-diff${diff === 0 ? ' zero' : ''}">+${numFmt(diff)}</div>`
+      : '';
+    return `<div class="s-card"><div class="s-card-tier" style="color:${color}">${TIER_LABELS[tier]}</div><div class="s-card-honor">${numFmt(latest.honor)}</div>${diffHtml}</div>`;
+  }).filter(Boolean);
+  wrap.innerHTML = cards.join('');
+}
+
 // ===== テーブル描画 =====
 function renderTable() {
   const wrap = document.getElementById('border-table-wrap');
   if (!borderData.length) { wrap.innerHTML = '<div class="loading">データなし</div>'; return; }
 
   const groups = groupByTier(borderData);
-  const showPred = isPredictionNeeded(currentEvent);
-  let html = '<table><thead><tr><th>順位</th><th>現在貢献度</th><th>20分増</th>';
-  if (showPred) html += '<th>予測(1日後)</th><th>最終予測</th>';
-  html += '</tr></thead><tbody>';
+  let html = '<table><thead><tr><th>順位</th><th>現在貢献度</th><th>20分増</th></tr></thead><tbody>';
 
   for (const tier of ALL_TIERS) {
     const data = groups[tier];
@@ -926,22 +1023,35 @@ function renderTable() {
     const latest = data[data.length - 1];
     const prev = data.length >= 2 ? data[data.length - 2] : null;
     const diff = prev ? latest.honor - prev.honor : null;
-    const pred = showPred ? computePrediction(tier, data) : null;
 
     html += `<tr>
       <td style="color:${TIER_COLORS[tier]}">${TIER_LABELS[tier]}</td>
       <td>${numFmt(latest.honor)}</td>
       <td class="${diff > 0 ? 'positive' : ''}">${diff != null ? '+' + numFmt(diff) : '-'}</td>`;
-    if (showPred) {
-      const p1d = pred?.predicted1d ? numFmt(pred.predicted1d) : '-';
-      const pFin = pred?.predictedFinal ? numFmt(pred.predictedFinal) : '-';
-      html += `<td class="pred-col">${p1d}</td><td class="pred-col">${pFin}</td>`;
-    }
     html += '</tr>';
   }
 
   html += '</tbody></table>';
   wrap.innerHTML = html;
+}
+
+// ===== 予測カード描画 (C-2) =====
+function renderPredictCard() {
+  const wrap = document.getElementById('predict-card-wrap');
+  if (!wrap) return;
+  if (!borderData.length || !isPredictionNeeded(currentEvent)) { wrap.innerHTML = ''; return; }
+  const groups = groupByTier(borderData);
+  const rows = ALL_TIERS.map(tier => {
+    const data = groups[tier]; if (!data || !data.length) return null;
+    const pred = computePrediction(tier, data);
+    if (!pred || (!pred.predicted1d && !pred.predictedFinal)) return null;
+    const color = TIER_COLORS[tier];
+    const p1d = pred.predicted1d ? numFmt(pred.predicted1d) : '-';
+    const pFin = pred.predictedFinal ? numFmt(pred.predictedFinal) : '-';
+    return `<div class="predict-row"><span class="predict-tier" style="color:${color}">${TIER_LABELS[tier]}</span><span class="predict-val" title="1日後予測">${p1d}</span><span class="predict-final" title="最終予測">${pFin}</span></div>`;
+  }).filter(Boolean);
+  if (!rows.length) { wrap.innerHTML = ''; return; }
+  wrap.innerHTML = `<div class="predict-card"><div class="predict-card-title">予測 &nbsp;<span style="font-weight:400;color:#64748b;font-size:10px">1日後 &nbsp;|&nbsp; 最終</span></div><div class="predict-grid">${rows.join('')}</div></div>`;
 }
 
 // ===== ティア切替 =====
@@ -1063,6 +1173,8 @@ function renderChart() {
   const useRelative = chartType === 'honor' && honorOrigin === 'rel';
   const predInfo = [];
   const showPred = !isSpeed && !useRelative && isPredictionNeeded(currentEvent);
+  const activeTierCount = ALL_TIERS.filter(t => activeTiers.has(t) && (groups[t] || []).length > 0).length;
+  const singleTier = activeTierCount === 1;
 
   for (const tier of ALL_TIERS) {
     if (!activeTiers.has(tier)) continue;
@@ -1111,7 +1223,8 @@ function renderChart() {
         label: TIER_LABELS[tier],
         data: clippedValues,
         borderColor: TIER_COLORS[tier],
-        backgroundColor: TIER_COLORS[tier] + '15',
+        backgroundColor: singleTier ? TIER_COLORS[tier] + '30' : TIER_COLORS[tier] + '15',
+        fill: singleTier ? 'origin' : false,
         pointRadius: 0,
         borderWidth: 2,
         tension: 0.3,
@@ -1124,7 +1237,8 @@ function renderChart() {
         label: TIER_LABELS[tier],
         data: values,
         borderColor: TIER_COLORS[tier],
-        backgroundColor: TIER_COLORS[tier] + '15',
+        backgroundColor: singleTier ? TIER_COLORS[tier] + '30' : TIER_COLORS[tier] + '15',
+        fill: singleTier ? 'origin' : false,
         pointRadius: 0,
         borderWidth: 2,
         tension: 0.3,
