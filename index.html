@@ -116,6 +116,12 @@ window.__STATIC_CACHE__=JSON.parse(pako.inflate(u,{to:'string'}));
     .section{padding:10px}
     table{font-size:11px}
     th,td{padding:4px 6px}
+    /* サマリーティア選択ボタン: モバイルで小さく */
+    .sum-tier-btn{font-size:9px;padding:1px 5px}
+    /* ティアトグルボタン */
+    .tier-btn{font-size:10px;padding:2px 7px}
+    /* 比較ボタン */
+    .cmp-btn{font-size:10px;padding:2px 6px}
   }
   /* サマリーカード (B-1) */
   .sum-tier-btn{padding:2px 8px;border-radius:10px;font-size:10px;cursor:pointer;border:1px solid;font-weight:600;transition:all 0.15s;opacity:0.4}
@@ -605,9 +611,14 @@ async function init() {
 
   // 静的モード: URLからイベント判定
   const pageEventId = getStaticPageEventId();
+  const savedBorderEventId = (() => { try { return localStorage.getItem('gbf_borderEventId'); } catch { return null; } })();
   const defaultEvent = pageEventId
     ? loadedEvents.find(e => e.id === pageEventId)
-    : loadedEvents.find(e => e.active) || loadedEvents[0];
+    : ((!window.__STATIC_MODE__ && savedBorderEventId)
+        ? (loadedEvents.find(e => String(e.id) === savedBorderEventId) || null)
+        : null)
+      || loadedEvents.find(e => e.active)
+      || loadedEvents[0];
 
   if (defaultEvent) {
     sel.value = defaultEvent.id;
@@ -654,6 +665,7 @@ function updateRankingLink() {
 async function onEventChange() {
   currentEventId = document.getElementById('event-select').value;
   currentEvent = loadedEvents.find(e => e.id == currentEventId) || null;
+  try { if (currentEventId) localStorage.setItem('gbf_borderEventId', String(currentEventId)); } catch {}
   applyElementTheme(currentEvent?.name || '');
   updateRankingLink();
   // 比較対象から現在のイベントを除外
@@ -1387,6 +1399,12 @@ function renderChart() {
           if (cmpMax == null || v >= cmpMax) { cmpMax = v; return v; }
           return cmpMax;
         });
+      }
+
+      // 期間増モード: 比較データも最初の値を基準に相対増加量に変換
+      if (useRelative && !isSpeed) {
+        const baseline = finalValues.find(v => v != null);
+        if (baseline != null) finalValues = finalValues.map(v => v != null ? v - baseline : null);
       }
 
       datasets.push({
