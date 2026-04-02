@@ -219,7 +219,7 @@ window.__STATIC_CACHE__=JSON.parse(pako.inflate(u,{to:'string'}));
   :focus-visible{outline:2px solid var(--md-primary);outline-offset:2px}
 </style>
 <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6139585433722718" crossorigin="anonymous"></script>
-<script src="/theme-manager.js"></script>
+<script src="/theme-manager.js?v=20260403"></script>
 <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6139585433722718" crossorigin="anonymous"></script>
 </head>
 <body>
@@ -1725,10 +1725,17 @@ function saveChartImage() {
   const isRel = chartType === 'honor' && honorOrigin === 'rel';
   const typeLabel = chartType === 'speed' ? '20分速' : isRel ? '期間増' : '貢献度推移';
   const eventName = currentEvent?.name || 'GBF古戦場';
-  const fromDay = document.getElementById('day-from')?.value || '';
-  const toDay = document.getElementById('day-to')?.value || '';
-  const range = fromDay && toDay && fromDay !== toDay ? ` ｜ ${fromDay} 〜 ${toDay}` : '';
-  const title = `GBF古戦場ボーダー推移 ｜ ${eventName} ｜ ${typeLabel}${range}`;
+  const fromVal = document.getElementById('day-from')?.value || '';
+  const toVal   = document.getElementById('day-to')?.value   || '';
+  function fmtDay(d) { return d ? `${parseInt(d.slice(5,7))}/${parseInt(d.slice(8,10))}` : ''; }
+  const dateRange = fromVal && toVal
+    ? (fromVal === toVal ? fmtDay(fromVal) : `${fmtDay(fromVal)} 〜 ${fmtDay(toVal)}`)
+    : '';
+
+  const title = [
+    dateRange ? `${eventName}　(${dateRange})` : eventName,
+    typeLabel,
+  ].filter(Boolean).join('　｜　');
 
   // 凡例情報を収集（画面上の凡例と同じグループ構造）
   const legendGroups = [];
@@ -1757,11 +1764,11 @@ function saveChartImage() {
   const ctx = off.getContext('2d');
 
   const _cs = getComputedStyle(document.documentElement);
-  ctx.fillStyle = _cs.getPropertyValue('--theme-bg').trim() || '#0f0f1a';
+  ctx.fillStyle = _cs.getPropertyValue('--theme-bg').trim() || '#0a0a0a';
   ctx.fillRect(0, 0, W, H);
 
   // タイトル
-  ctx.fillStyle = _cs.getPropertyValue('--elem-color').trim() || '#93c5fd';
+  ctx.fillStyle = _cs.getPropertyValue('--elem-color').trim() || '#3b82f6';
   ctx.font = 'bold 13px sans-serif';
   ctx.fillText(title, pad, pad + 16);
 
