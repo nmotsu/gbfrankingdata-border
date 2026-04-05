@@ -245,6 +245,9 @@ window.__STATIC_CACHE__=JSON.parse(pako.inflate(u,{to:'string'}));
   .s-card:hover{box-shadow:0 2px 12px rgba(0,0,0,.4)}
   /* 広告スロット */
   .ad-inline-wrap{text-align:center;padding:8px 0 4px;min-height:0;overflow:hidden}
+  /* ボーダー値↔グラフ間 728×90 PCのみ */
+  #border-mid-ad{display:none;text-align:center;overflow:hidden;margin:8px 0}
+  @media(min-width:768px){#border-mid-ad{display:block}}
 </style>
 <!-- admax -->
 <script src="https://adm.shinobi.jp/s/037c4a7216e66a7bda791fd7d05412d5"></script>
@@ -494,8 +497,12 @@ window.__STATIC_CACHE__=JSON.parse(pako.inflate(u,{to:'string'}));
     </div>
   </div>
 
-  <!-- 広告スロット（ボーダー値とグラフの間） -->
-  <div class="ad-inline-wrap"><style>.ad-slot-pc{display:none}.ad-slot-mb{display:none}@media(min-width:768px){.ad-slot-pc{display:block}}@media(max-width:767px){.ad-slot-mb{display:block}}</style><div class="ad-slot-pc"><script src="https://adm.shinobi.jp/s/68b6fdf00b66a6b4729a5bc9a71d6234"></script></div><div class="ad-slot-mb"><script src="https://adm.shinobi.jp/s/dda9c8d32b3d9a9cc2917d13771fa375"></script></div></div>
+  <!-- 広告スロット（ボーダー値とグラフの間・728×90・PCのみ） -->
+  <div id="border-mid-ad">
+    <!-- admax -->
+    <script src="https://adm.shinobi.jp/s/1ef61e7be0d4a5ab7939b953e7b95fbb"></script>
+    <!-- admax -->
+  </div>
 
   <!-- グラフ（個別ランキンググラフ風レイアウト） -->
   <div class="section">
@@ -699,6 +706,7 @@ function getRelativeKey(capturedAt, eventStartDate) {
 
 function getStaticPageEventId() {
   if (!window.__STATIC_MODE__) return null;
+  // サブドメイン形式 (ev8.gbfranking.com) での検出
   const h = location.hostname;
   const m = h.match(/^ev(\d+)\./);
   if (m) {
@@ -708,6 +716,16 @@ function getStaticPageEventId() {
       return ec === code;
     });
     if (ev) return ev.id;
+  }
+  // __STATIC_CACHE__ のキーからイベントIDを検出（パスベースの静的ページ対応）
+  if (window.__STATIC_CACHE__) {
+    for (const key of Object.keys(window.__STATIC_CACHE__)) {
+      const cm = key.match(/\/api\/ranking\/borders\?event_id=(\d+)/);
+      if (cm) {
+        const ev = loadedEvents.find(e => e.id === Number(cm[1]));
+        if (ev) return ev.id;
+      }
+    }
   }
   return null;
 }
