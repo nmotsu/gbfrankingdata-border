@@ -720,6 +720,8 @@ function getRelativeKey(capturedAt, eventStartDate) {
 
 function getStaticPageEventId() {
   if (!window.__STATIC_MODE__) return null;
+  // border.gbfranking.com（全イベント入りボーダーサイト）はURLからの判定不要
+  if (window.__BORDER_SITE__) return null;
   // サブドメイン形式 (ev8.gbfranking.com) での検出
   const h = location.hostname;
   const m = h.match(/^ev(\d+)\./);
@@ -730,16 +732,6 @@ function getStaticPageEventId() {
       return ec === code;
     });
     if (ev) return ev.id;
-  }
-  // __STATIC_CACHE__ のキーからイベントIDを検出（パスベースの静的ページ対応）
-  if (window.__STATIC_CACHE__) {
-    for (const key of Object.keys(window.__STATIC_CACHE__)) {
-      const cm = key.match(/\/api\/ranking\/borders\?event_id=(\d+)/);
-      if (cm) {
-        const ev = loadedEvents.find(e => e.id === Number(cm[1]));
-        if (ev) return ev.id;
-      }
-    }
   }
   return null;
 }
@@ -871,19 +863,6 @@ async function onEventChange() {
   delete compareDataMap[Number(currentEventId)];
   renderCompareToggles();
   if (!currentEventId) { borderData = []; renderSummaryCards(); renderTable(); renderPredictCard(); renderChart(); startAutoRefresh(); return; }
-
-  // 静的モード: ページ遷移
-  if (window.__STATIC_MODE__ && window.__STATIC_EVENT_URLS__) {
-    const pageEventId = getStaticPageEventId();
-    if (pageEventId && Number(currentEventId) !== pageEventId) {
-      const targetUrl = window.__STATIC_EVENT_URLS__[currentEventId];
-      if (targetUrl) {
-        const borderUrl = targetUrl.replace(/\/?$/, '/border.html');
-        window.location.href = borderUrl;
-        return;
-      }
-    }
-  }
 
   updateSpeedBtn();
   await loadBorders(currentEventId);
