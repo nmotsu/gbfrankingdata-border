@@ -176,9 +176,9 @@ window.__STATIC_CACHE__=JSON.parse(pako.inflate(u,{to:'string'}));
   .site-menu a{display:block;padding:8px 16px;color:var(--md-on-surface-variant);text-decoration:none;font-size:0.6875rem;transition:background var(--md-duration-short) var(--md-ease)}
   .site-menu a:hover{color:var(--md-on-surface);background:rgba(255,255,255,0.06)}
   .site-menu a:not(:last-child){border-bottom:1px solid var(--md-outline-variant)}
-  .help-tab{padding:6px 12px;border-radius:var(--md-shape-sm);font-size:0.75rem;cursor:pointer;background:var(--md-surface-dim);border:1px solid var(--md-outline-variant);color:var(--md-on-surface-variant);transition:all var(--md-duration-short) var(--md-ease);white-space:nowrap}
-  .help-tab.active{background:var(--md-secondary-container);color:var(--md-secondary);border-color:var(--md-primary-dim)}
-  .help-tab:hover:not(.active){color:var(--md-on-surface-variant);border-color:var(--md-outline)}
+  .help-tab{padding:6px 14px;border-radius:var(--md-shape-sm) var(--md-shape-sm) 0 0;font-size:0.75rem;cursor:pointer;background:var(--md-surface-container);color:var(--md-on-surface-variant);border:1px solid var(--md-outline);border-bottom:1px solid var(--md-outline);margin-bottom:-1px;transition:all var(--md-duration-short) var(--md-ease);white-space:nowrap}
+  .help-tab.active{background:var(--md-surface-container);color:var(--md-on-surface);border-bottom-color:var(--md-surface-container)}
+  .help-tab:hover:not(.active){color:var(--md-on-surface);}
   .help-panel-desc{font-size:0.75rem;color:var(--md-on-surface-variant);margin-bottom:12px;line-height:1.7}
   .help-tip{font-size:0.6875rem;color:var(--md-on-surface-variant);background:var(--md-surface-dim);border:1px solid var(--md-outline-variant);border-radius:var(--md-shape-sm);padding:10px 12px;margin-top:12px;line-height:1.7}
   .help-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
@@ -283,11 +283,12 @@ window.__STATIC_CACHE__=JSON.parse(pako.inflate(u,{to:'string'}));
       <button class="modal-close" onclick="document.getElementById('howto-modal').classList.remove('open')">✕</button>
     </div>
     <!-- タブ -->
-    <div style="display:flex;gap:4px;padding:0 14px 10px;border-bottom:1px solid var(--md-outline-variant);flex-wrap:wrap;background:var(--md-surface-dim)">
+    <div style="display:flex;gap:4px;padding:10px 14px 0;border-bottom:1px solid var(--md-outline-variant);flex-wrap:wrap;background:var(--md-surface-dim)">
       <button class="help-tab active" id="btab-chart" onclick="switchBorderHelpTab('chart')">グラフ</button>
       <button class="help-tab" id="btab-tier" onclick="switchBorderHelpTab('tier')">順位切替</button>
       <button class="help-tab" id="btab-compare" onclick="switchBorderHelpTab('compare')">比較</button>
       <button class="help-tab" id="btab-pred" onclick="switchBorderHelpTab('pred')">予測</button>
+      <button class="help-tab" id="btab-legend" onclick="switchBorderHelpTab('legend')">表示の見方</button>
     </div>
     <div class="modal-body" style="padding:16px 18px;overflow-y:auto;min-height:380px;max-height:70vh">
 
@@ -360,7 +361,8 @@ window.__STATIC_CACHE__=JSON.parse(pako.inflate(u,{to:'string'}));
           <text x="39" y="114" fill="#fbbf24" font-size="10" text-anchor="middle" font-weight="bold">1位</text>
           <text x="68" y="114" fill="#4b5563" font-size="9">← 長押しでこの1つだけ表示（フォーカスモード）</text>
         </svg>
-        <div class="help-tip">デフォルトは <strong style="color:var(--md-on-surface)">1・10・100・1,000位</strong> の4ティアが表示されます。ボーダーカードをクリックすると詳細モーダルが開き、全件の推移履歴と予測値を確認できます。</div>
+        <div class="help-tip">取得対象ティア: <strong style="color:var(--md-on-surface)">1・10・50・100・500・1,000・2,000・100,000・150,000・200,000 位</strong>（取得状況により一部欠落あり）。ボーダーカードまたはテーブル行をクリックすると詳細モーダルが開き、全件の推移履歴と予測値を確認できます。</div>
+        <div class="help-tip" style="margin-top:8px"><strong style="color:var(--md-on-surface)">ソースの違い:</strong> ゲーム公式の border.json から取得したティア（1, 10, 50, 100, 500, 1000, 2000, 100000, 150000, 200000）と、ランキング JSON から派生計算した値の 2 系統があります。両方が揃わない時間帯はランキング派生で補完されます。</div>
       </div>
 
       <!-- ===== 比較 ===== -->
@@ -433,7 +435,30 @@ window.__STATIC_CACHE__=JSON.parse(pako.inflate(u,{to:'string'}));
           </div>
           <div class="help-grid-item">
             <div style="color:#94a3b8;font-weight:700;margin-bottom:4px">精度について</div>
-            <div style="color:var(--md-on-surface-variant);font-size:12px">予測は参考値です。古戦場の進行状況によって実際の値と大きく異なる場合があります。</div>
+            <div style="color:var(--md-on-surface-variant);font-size:12px">予測は<strong style="color:var(--md-on-surface)">あくまで参考値</strong>です。本戦終盤の追い上げや上位プレイヤーの動向によって実際の値と数億〜数十億単位でズレる場合があります。最終日に近づくほど精度は上がりますが、過信しないでください。</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== 表示の見方（色凡例） ===== -->
+      <div id="bpanel-legend" style="display:none">
+        <p class="help-panel-desc">グラフ・テーブルの記号や色の意味です。順位上昇/下降を示す <strong style="color:#60a5fa">▲</strong>/<strong style="color:#f87171">▼</strong> はイベント属性色（火・水など）に関わらず常に同じ色で表示されます。</p>
+        <div class="help-grid">
+          <div class="help-grid-item" style="border-left:3px solid #60a5fa">
+            <div style="color:#60a5fa;font-weight:700;margin-bottom:4px">▲ 青</div>
+            <div style="color:var(--md-on-surface-variant);font-size:12px">前回より上昇/増加。ソートヘッダの ▲（昇順）も同じ青色で表示されます。</div>
+          </div>
+          <div class="help-grid-item" style="border-left:3px solid #f87171">
+            <div style="color:#f87171;font-weight:700;margin-bottom:4px">▼ 赤</div>
+            <div style="color:var(--md-on-surface-variant);font-size:12px">前回より下降/減少。ソートヘッダの ▼（降順）も同じ赤色で表示されます。</div>
+          </div>
+          <div class="help-grid-item" style="border-left:3px solid var(--elem-color)">
+            <div style="color:var(--elem-color);font-weight:700;margin-bottom:4px">イベント属性色</div>
+            <div style="color:var(--md-on-surface-variant);font-size:12px">グラフのメインライン色やヘッダ等の装飾は古戦場の属性で変わります。データの読み取りには影響しません。</div>
+          </div>
+          <div class="help-grid-item" style="border-left:3px solid #fbbf24">
+            <div style="color:#fbbf24;font-weight:700;margin-bottom:4px">予測値</div>
+            <div style="color:var(--md-on-surface-variant);font-size:12px">破線・「予測」ラベルで表示。実線が現在までの実績、破線が今後の予測です。</div>
           </div>
         </div>
       </div>
@@ -1842,7 +1867,7 @@ function startAutoRefresh() {
 
 // ===== 使い方タブ =====
 function switchBorderHelpTab(tab) {
-  ['chart', 'tier', 'compare', 'pred'].forEach(t => {
+  ['chart', 'tier', 'compare', 'pred', 'legend'].forEach(t => {
     document.getElementById(`btab-${t}`)?.classList.toggle('active', t === tab);
     const p = document.getElementById(`bpanel-${t}`);
     if (p) p.style.display = t === tab ? '' : 'none';
