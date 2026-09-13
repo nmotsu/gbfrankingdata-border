@@ -798,13 +798,13 @@ document.addEventListener('DOMContentLoaded', () => {
           <text x="36" y="120" fill="#fbbf24" font-size="8">1,234,567,890</text>
           <text x="130" y="120" fill="#64748b" font-size="8">  20分増:</text>
           <text x="176" y="120" fill="#4ade80" font-size="8">+1,234,567</text>
-          <text x="240" y="120" fill="#64748b" font-size="8">  予測(1日後):</text>
+          <text x="240" y="120" fill="#64748b" font-size="8">  予測(当日):</text>
           <text x="308" y="120" fill="#fbbf24" font-size="8">2,345,678,901</text>
         </svg>
         <div class="help-grid" style="margin-top:12px">
           <div class="help-grid-item">
             <div style="color:#fbbf24;font-weight:700;margin-bottom:4px">予測値の計算</div>
-            <div style="color:var(--md-on-surface-variant);font-size:12px">直近6時間分（18スナップ）の活動時間帯（7〜24時）平均速度に、翌日の活動スナップ数（51回）を掛けて算出します。</div>
+            <div style="color:var(--md-on-surface-variant);font-size:12px">直近6時間分（18スナップ）の活動時間帯（7〜24時）平均速度に、当日24:00までの残りスナップ数を掛けて算出します（過去の同じ古戦場のデータがあれば、同時点からの伸び率ベースの予測を優先します）。</div>
           </div>
           <div class="help-grid-item">
             <div style="color:#94a3b8;font-weight:700;margin-bottom:4px">表示条件</div>
@@ -812,7 +812,7 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
           <div class="help-grid-item">
             <div style="color:#f59e0b;font-weight:700;margin-bottom:4px">詳細モーダル</div>
-            <div style="color:var(--md-on-surface-variant);font-size:12px">ボーダーカードまたはテーブル行をクリックすると、各ティアの予測値（1日後・最終）を詳細モーダルで確認できます。</div>
+            <div style="color:var(--md-on-surface-variant);font-size:12px">ボーダーカードまたはテーブル行をクリックすると、各ティアの予測値（当日・最終）を詳細モーダルで確認できます。</div>
           </div>
           <div class="help-grid-item">
             <div style="color:#94a3b8;font-weight:700;margin-bottom:4px">精度について</div>
@@ -872,8 +872,8 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="tier-stat-value" id="tier-modal-diff">—</div>
         </div>
         <div class="tier-stat-card">
-          <div class="tier-stat-label">1日後予測</div>
-          <div class="tier-stat-value" id="tier-modal-pred1d" style="color:var(--md-warning,#f59e0b)">—</div>
+          <div class="tier-stat-label">当日予測</div>
+          <div class="tier-stat-value" id="tier-modal-predtoday" style="color:var(--md-warning,#f59e0b)">—</div>
         </div>
         <div class="tier-stat-card">
           <div class="tier-stat-label">最終予測</div>
@@ -966,7 +966,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <button id="honor-abs-btn" class="gchart-type-btn active" onclick="setHonorOrigin('abs')">実数</button>
         <button id="honor-rel-btn" class="gchart-type-btn" onclick="setHonorOrigin('rel')">期間増</button>
       </div>
-      <button class="gchart-type-btn active" id="pred1d-toggle-btn" onclick="togglePred('1d')" title="1日後予測線の表示/非表示">1日後予測</button>
+      <button class="gchart-type-btn active" id="predtoday-toggle-btn" onclick="togglePred('today')" title="当日予測線の表示/非表示">当日予測</button>
       <button class="gchart-type-btn" id="predfin-toggle-btn" onclick="togglePred('final')" title="最終予測線の表示/非表示（序盤は現在地が潰れて見えにくくなることがあります）">最終予測</button>
       <button class="gchart-type-btn" onclick="saveChartImage()" title="グラフを画像保存" style="margin-left:auto">保存</button>
     </div>
@@ -1027,7 +1027,7 @@ let chartType = 'honor';
 let honorOrigin = 'abs'; // 'abs' | 'rel'
 // 予測線 ON/OFF（最終予測は序盤に値が現在地より桁違いに大きくなり
 // Y軸スケールが引き伸ばされて現在地が潰れて見えることがあるため、デフォルトOFF）
-let showPred1dToggle    = localStorage.getItem('border_show_pred_1d')    !== '0';
+let showPredTodayToggle    = localStorage.getItem('border_show_pred_today')    !== '0';
 let showPredFinalToggle = localStorage.getItem('border_show_pred_final') === '1';
 let chartInstance = null;
 let allDays = [];
@@ -1196,7 +1196,7 @@ function applyElementTheme(eventName) {
 // ===== 初期化 =====
 async function init() {
   // 予測線トグルの表示状態をlocalStorageの設定に同期
-  document.getElementById('pred1d-toggle-btn')?.classList.toggle('active', showPred1dToggle);
+  document.getElementById('predtoday-toggle-btn')?.classList.toggle('active', showPredTodayToggle);
   document.getElementById('predfin-toggle-btn')?.classList.toggle('active', showPredFinalToggle);
 
   // イベント取得（Chart.js はグラフ描画時に遅延ロード）
@@ -1475,7 +1475,7 @@ function groupByTier(data) {
 }
 
 // ===== 予測（過去イベント比率ベース + フォールバック） =====
-// 参照イベントの同時点→1日後・最終値の伸び率をティアごとに適用
+// 参照イベントの同時点→当日・最終値の伸び率をティアごとに適用
 function computePrediction(tier, tierData) {
   if (tierData.length < 3) return null;
   const lastHonor = tierData[tierData.length - 1].honor;
@@ -1490,7 +1490,7 @@ function computePrediction(tier, tierData) {
 
   if (ratioPred) {
     return {
-      predicted1d: ratioPred.predicted1d,
+      predictedToday: ratioPred.predictedToday,
       predictedFinal: ratioPred.predictedFinal,
       method: 'ratio',
       refName: refEvent?.name || '過去イベント',
@@ -1498,7 +1498,7 @@ function computePrediction(tier, tierData) {
   }
   if (linearPred) {
     return {
-      predicted1d: linearPred.predicted1d,
+      predictedToday: linearPred.predictedToday,
       predictedFinal: linearPred.predictedFinal,
       method: 'linear',
       refName: null,
@@ -1542,31 +1542,38 @@ function computeRatioPrediction(tier, lastHonor, lastTime) {
   // 参照イベントの最終値
   const refFinal = refTierData[refTierData.length - 1].honor;
 
-  // 参照イベントの1日後の値を探す
-  const oneDayLaterKey = advanceRelKey(currentRelKey, 1);
-  let refAt1dLater = null;
-  if (oneDayLaterKey) {
+  // 参照イベントの「当日24:00時点」の値を探す（同じ日番号・時刻00:00 = 翌日0:00 = 前日24:00相当）
+  const todayEndKey = endOfDayKey(currentRelKey);
+  let refAtTodayEnd = null;
+  if (todayEndKey) {
     let closest = null, closestDist = Infinity;
     for (const row of refTierData) {
       const rk = getRelativeKey(row.captured_at, refEvent.start_date);
       if (!rk) continue;
-      const dist = relKeyDistance(oneDayLaterKey, rk);
+      const dist = relKeyDistance(todayEndKey, rk);
       if (dist < closestDist) { closestDist = dist; closest = row.honor; }
     }
-    if (closest != null && closestDist <= 3) refAt1dLater = closest;
+    if (closest != null && closestDist <= 3) refAtTodayEnd = closest;
   }
 
   // 比率を計算して適用
   const ratioFinal = refFinal / refAtSamePoint;
   const predictedFinal = Math.round(lastHonor * ratioFinal);
 
-  let predicted1d = null;
-  if (refAt1dLater != null) {
-    const ratio1d = refAt1dLater / refAtSamePoint;
-    predicted1d = Math.round(lastHonor * ratio1d);
+  let predictedToday = null;
+  if (refAtTodayEnd != null) {
+    const ratioToday = refAtTodayEnd / refAtSamePoint;
+    predictedToday = Math.round(lastHonor * ratioToday);
   }
 
-  return { predicted1d, predictedFinal };
+  return { predictedToday, predictedFinal };
+}
+
+// 相対キーの時刻部分を00:00に置き換える（同じ日番号の「当日24:00」＝翌日0:00相当を指す）
+function endOfDayKey(key) {
+  const m = key.match(/^d(\d+)_\d{2}:\d{2}$/);
+  if (!m) return null;
+  return `d${m[1]}_00:00`;
 }
 
 // 相対キー間の距離（20分単位の差）
@@ -1582,12 +1589,6 @@ function relKeyDistance(key1, key2) {
   return Math.abs(v1 - v2);
 }
 
-// 相対キーを1日進める
-function advanceRelKey(key, days) {
-  const m = key.match(/^d(\d+)_(\d{2}:\d{2})$/);
-  if (!m) return null;
-  return `d${parseInt(m[1]) + days}_${m[2]}`;
-}
 
 // 線形予測（フォールバック用）
 function computeLinearPrediction(tierData, lastHonor, lastTime, event) {
@@ -1608,7 +1609,13 @@ function computeLinearPrediction(tierData, lastHonor, lastTime, event) {
   const avgSpeed = recent.reduce((a, b) => a + b, 0) / recent.length;
   const ACTIVE_SNAPS_PER_DAY = 51;
 
-  const predicted1d = lastHonor + Math.round(avgSpeed * ACTIVE_SNAPS_PER_DAY);
+  // 当日予測: 直近の平均速度 × 当日24:00までの残り20分刻み数
+  // 0:00〜6:59は前日24:00〜24:59相当（GBF日切り替え前）のため、既に当日終了扱いで残り0とする
+  const timePart = (lastTime || '').split(' ')[1] || '00:00';
+  const [lastHH, lastMM] = timePart.split(':').map(Number);
+  const minutesUntilMidnight = lastHH < 7 ? 0 : (24 * 60 - (lastHH * 60 + lastMM));
+  const remainingSnapsToday = Math.max(0, Math.floor(minutesUntilMidnight / 20));
+  const predictedToday = lastHonor + Math.round(avgSpeed * remainingSnapsToday);
 
   // 最終予測: イベント終了まで残り時間 × 平均速度
   let predictedFinal = null;
@@ -1625,7 +1632,7 @@ function computeLinearPrediction(tierData, lastHonor, lastTime, event) {
     }
   }
 
-  return { predicted1d, predictedFinal };
+  return { predictedToday, predictedFinal };
 }
 
 // 参照イベント自動読み込み（直近の終了済みイベント）
@@ -1731,14 +1738,14 @@ function renderPredictCard() {
   const rows = ALL_TIERS.map(tier => {
     const data = groups[tier]; if (!data || !data.length) return null;
     const pred = computePrediction(tier, data);
-    if (!pred || (!pred.predicted1d && !pred.predictedFinal)) return null;
+    if (!pred || (!pred.predictedToday && !pred.predictedFinal)) return null;
     const color = TIER_COLORS[tier];
-    const p1d = pred.predicted1d ? numFmt(pred.predicted1d) : '-';
+    const pToday = pred.predictedToday ? numFmt(pred.predictedToday) : '-';
     const pFin = pred.predictedFinal ? numFmt(pred.predictedFinal) : '-';
-    return `<tr><td style="color:${color}">${TIER_LABELS[tier]}</td><td class="predict-1d">${p1d}</td><td class="predict-fin">${pFin}</td></tr>`;
+    return `<tr><td style="color:${color}">${TIER_LABELS[tier]}</td><td class="predict-1d">${pToday}</td><td class="predict-fin">${pFin}</td></tr>`;
   }).filter(Boolean);
   if (!rows.length) { wrap.innerHTML = ''; return; }
-  wrap.innerHTML = `<div class="predict-card"><div class="predict-card-title">予測</div><table class="predict-table"><thead><tr><th>ティア</th><th>1日後</th><th>最終</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
+  wrap.innerHTML = `<div class="predict-card"><div class="predict-card-title">予測</div><table class="predict-table"><thead><tr><th>ティア</th><th>当日</th><th>最終</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
 }
 
 // ===== ティア切替 =====
@@ -1799,10 +1806,10 @@ function updateSpeedBtn() {
 }
 
 function togglePred(kind) {
-  if (kind === '1d') {
-    showPred1dToggle = !showPred1dToggle;
-    document.getElementById('pred1d-toggle-btn')?.classList.toggle('active', showPred1dToggle);
-    try { localStorage.setItem('border_show_pred_1d', showPred1dToggle ? '1' : '0'); } catch {}
+  if (kind === 'today') {
+    showPredTodayToggle = !showPredTodayToggle;
+    document.getElementById('predtoday-toggle-btn')?.classList.toggle('active', showPredTodayToggle);
+    try { localStorage.setItem('border_show_pred_today', showPredTodayToggle ? '1' : '0'); } catch {}
   } else {
     showPredFinalToggle = !showPredFinalToggle;
     document.getElementById('predfin-toggle-btn')?.classList.toggle('active', showPredFinalToggle);
@@ -1873,7 +1880,7 @@ async function renderChart() {
   const isSpeed = chartType === 'speed';
   const useRelative = chartType === 'honor' && honorOrigin === 'rel';
   const predInfo = [];
-  const showPred = (showPred1dToggle || showPredFinalToggle) && !isSpeed && !useRelative && isPredictionNeeded(currentEvent);
+  const showPred = (showPredTodayToggle || showPredFinalToggle) && !isSpeed && !useRelative && isPredictionNeeded(currentEvent);
   const activeTierCount = ALL_TIERS.filter(t => activeTiers.has(t) && (groups[t] || []).length > 0).length;
   const singleTier = activeTierCount === 1;
 
@@ -1956,15 +1963,15 @@ async function renderChart() {
         const lastTime = data[data.length - 1].captured_at;
         const lastIdx = labels.indexOf(lastTime);
 
-        // 1日後予測線（ダッシュドット: 比較線と明確に区別）
-        if (showPred1dToggle && pred.predicted1d && lastIdx >= 0) {
-          const predValue1d = Math.max(pred.predicted1d, lastHonor);
-          const predValues1d = new Array(labels.length).fill(null);
-          predValues1d[lastIdx] = lastHonor;
-          predValues1d.push(predValue1d);
+        // 当日予測線（ダッシュドット: 比較線と明確に区別）
+        if (showPredTodayToggle && pred.predictedToday && lastIdx >= 0) {
+          const predValueToday = Math.max(pred.predictedToday, lastHonor);
+          const predValuesToday = new Array(labels.length).fill(null);
+          predValuesToday[lastIdx] = lastHonor;
+          predValuesToday.push(predValueToday);
           datasets.push({
-            label: `${TIER_LABELS[tier]}(1日後)`,
-            data: predValues1d,
+            label: `${TIER_LABELS[tier]}(当日)`,
+            data: predValuesToday,
             borderColor: TIER_COLORS[tier] + 'dd',
             backgroundColor: 'transparent',
             pointRadius: [0, 4],
@@ -1973,11 +1980,11 @@ async function renderChart() {
             borderDash: [8, 3, 2, 3],
             tension: 0,
             spanGaps: true,
-            _predType: '1d',
+            _predType: 'today',
           });
         }
 
-        // 最終予測線（ドット: 比較線・1日後線と明確に区別）
+        // 最終予測線（ドット: 比較線・当日線と明確に区別）
         if (showPredFinalToggle && pred.predictedFinal && lastIdx >= 0) {
           const predValueFin = Math.max(pred.predictedFinal, lastHonor);
           const predValuesFin = new Array(labels.length).fill(null);
@@ -2001,7 +2008,7 @@ async function renderChart() {
 
         // 予測情報テキスト
         const parts = [];
-        if (showPred1dToggle && pred.predicted1d) parts.push(`1日後:${numFmt(pred.predicted1d)}`);
+        if (showPredTodayToggle && pred.predictedToday) parts.push(`当日:${numFmt(pred.predictedToday)}`);
         if (showPredFinalToggle && pred.predictedFinal) parts.push(`最終:${numFmt(pred.predictedFinal)}`);
         if (parts.length) {
           const methodTag = pred.method === 'ratio' ? '' : '(線形)';
@@ -2108,12 +2115,12 @@ async function renderChart() {
     }
   }
 
-  // 予測ラベル追加（1日後 + 最終の2ラベル）
-  const has1d = datasets.some(ds => ds._predType === '1d');
+  // 予測ラベル追加（当日 + 最終の2ラベル）
+  const hasToday = datasets.some(ds => ds._predType === 'today');
   const hasFinal = datasets.some(ds => ds._predType === 'final');
-  if (showPred && (has1d || hasFinal)) {
-    if (has1d) {
-      shortLabels.push(isMobile ? '1日後' : '予測(1日後)');
+  if (showPred && (hasToday || hasFinal)) {
+    if (hasToday) {
+      shortLabels.push(isMobile ? '当日' : '予測(当日)');
       for (const ds of datasets) {
         if (!ds._predType && ds.data.length === labels.length) ds.data.push(null);
       }
@@ -2122,7 +2129,7 @@ async function renderChart() {
       shortLabels.push(isMobile ? '最終' : '最終予測');
       for (const ds of datasets) {
         if (!ds._predType && ds.data.length < shortLabels.length) ds.data.push(null);
-        if (ds._predType === '1d' && ds.data.length < shortLabels.length) ds.data.push(null);
+        if (ds._predType === 'today' && ds.data.length < shortLabels.length) ds.data.push(null);
       }
     }
   }
@@ -2224,14 +2231,14 @@ function renderCustomLegend(datasets) {
   const predItems = [];
   const cmpGroups = {}; // { eventName: items[] }
 
-  const pred1dItems = [];
+  const predTodayItems = [];
   const predFinItems = [];
 
   datasets.forEach((ds, idx) => {
     const label = ds.label || '';
-    if (ds._predType === '1d') {
-      const shortLabel = label.replace('(1日後)', '').trim();
-      pred1dItems.push({ idx, ds, label: shortLabel });
+    if (ds._predType === 'today') {
+      const shortLabel = label.replace('(当日)', '').trim();
+      predTodayItems.push({ idx, ds, label: shortLabel });
     } else if (ds._predType === 'final') {
       const shortLabel = label.replace('(最終)', '').trim();
       predFinItems.push({ idx, ds, label: shortLabel });
@@ -2253,8 +2260,8 @@ function renderCustomLegend(datasets) {
   const mainName = currentEvent ? currentEvent.name : '現在のイベント';
   html += buildLegendGroup(mainName, mainItems);
 
-  if (pred1dItems.length) {
-    html += buildLegendGroup('予測(1日後)', pred1dItems);
+  if (predTodayItems.length) {
+    html += buildLegendGroup('予測(当日)', predTodayItems);
   }
   if (predFinItems.length) {
     html += buildLegendGroup('最終予測', predFinItems);
@@ -2457,7 +2464,7 @@ function openTierModal(tier) {
 
   // 予測値（computePrediction を直接呼び出し）
   const pred = (typeof computePrediction === 'function') ? computePrediction(tier, data) : null;
-  document.getElementById('tier-modal-pred1d').textContent  = pred?.predicted1d   ? numFmt(pred.predicted1d)   : '—';
+  document.getElementById('tier-modal-predtoday').textContent  = pred?.predictedToday   ? numFmt(pred.predictedToday)   : '—';
   document.getElementById('tier-modal-predfin').textContent = pred?.predictedFinal ? numFmt(pred.predictedFinal) : '—';
 
   // 推移テーブル（全件、新しい順）
