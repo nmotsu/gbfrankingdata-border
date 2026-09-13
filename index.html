@@ -966,7 +966,8 @@ document.addEventListener('DOMContentLoaded', () => {
         <button id="honor-abs-btn" class="gchart-type-btn active" onclick="setHonorOrigin('abs')">実数</button>
         <button id="honor-rel-btn" class="gchart-type-btn" onclick="setHonorOrigin('rel')">期間増</button>
       </div>
-      <button class="gchart-type-btn active" id="pred-toggle-btn" onclick="togglePred()" title="予測線の表示/非表示">予測</button>
+      <button class="gchart-type-btn active" id="pred1d-toggle-btn" onclick="togglePred('1d')" title="1日後予測線の表示/非表示">1日後予測</button>
+      <button class="gchart-type-btn" id="predfin-toggle-btn" onclick="togglePred('final')" title="最終予測線の表示/非表示（序盤は現在地が潰れて見えにくくなることがあります）">最終予測</button>
       <button class="gchart-type-btn" onclick="saveChartImage()" title="グラフを画像保存" style="margin-left:auto">保存</button>
     </div>
 
@@ -1024,7 +1025,10 @@ let activeTiers = new Set([1, 10, 100, 1000]); // デフォルトは主要4順�
 let focusTier = null; // フォーカス中のティア（null = 全表示）
 let chartType = 'honor';
 let honorOrigin = 'abs'; // 'abs' | 'rel'
-let showPredToggle = true; // 予測線 ON/OFF
+// 予測線 ON/OFF（最終予測は序盤に値が現在地より桁違いに大きくなり
+// Y軸スケールが引き伸ばされて現在地が潰れて見えることがあるため、デフォルトOFF）
+let showPred1dToggle    = localStorage.getItem('border_show_pred_1d')    !== '0';
+let showPredFinalToggle = localStorage.getItem('border_show_pred_final') === '1';
 let chartInstance = null;
 let allDays = [];
 let autoTimer = null;
@@ -1191,6 +1195,10 @@ function applyElementTheme(eventName) {
 
 // ===== 初期化 =====
 async function init() {
+  // 予測線トグルの表示状態をlocalStorageの設定に同期
+  document.getElementById('pred1d-toggle-btn')?.classList.toggle('active', showPred1dToggle);
+  document.getElementById('predfin-toggle-btn')?.classList.toggle('active', showPredFinalToggle);
+
   // イベント取得（Chart.js はグラフ描画時に遅延ロード）
   const events = await apiFetch('/api/ranking/events');
   loadedEvents = events || [];
@@ -1790,10 +1798,16 @@ function updateSpeedBtn() {
   if (disabled && chartType === 'speed') setChartType('honor');
 }
 
-function togglePred() {
-  showPredToggle = !showPredToggle;
-  const btn = document.getElementById('pred-toggle-btn');
-  if (btn) btn.classList.toggle('active', showPredToggle);
+function togglePred(kind) {
+  if (kind === '1d') {
+    showPred1dToggle = !showPred1dToggle;
+    document.getElementById('pred1d-toggle-btn')?.classList.toggle('active', showPred1dToggle);
+    try { localStorage.setItem('border_show_pred_1d', showPred1dToggle ? '1' : '0'); } catch {}
+  } else {
+    showPredFinalToggle = !showPredFinalToggle;
+    document.getElementById('predfin-toggle-btn')?.classList.toggle('active', showPredFinalToggle);
+    try { localStorage.setItem('border_show_pred_final', showPredFinalToggle ? '1' : '0'); } catch {}
+  }
   renderChart();
 }
 
@@ -1859,7 +1873,7 @@ async function renderChart() {
   const isSpeed = chartType === 'speed';
   const useRelative = chartType === 'honor' && honorOrigin === 'rel';
   const predInfo = [];
-  const showPred = showPredToggle && !isSpeed && !useRelative && isPredictionNeeded(currentEvent);
+  const showPred = (showPred1dToggle || showPredFinalToggle) && !isSpeed && !useRelative && isPredictionNeeded(currentEvent);
   const activeTierCount = ALL_TIERS.filter(t => activeTiers.has(t) && (groups[t] || []).length > 0).length;
   const singleTier = activeTierCount === 1;
 
@@ -1943,7 +1957,7 @@ async function renderChart() {
         const lastIdx = labels.indexOf(lastTime);
 
         // 1日後予測線（ダッシュドット: 比較線と明確に区別）
-        if (pred.predicted1d && lastIdx >= 0) {
+        if (showPred1dToggle && pred.predicted1d && lastIdx >= 0) {
           const predValue1d = Math.max(pred.predicted1d, lastHonor);
           const predValues1d = new Array(labels.length).fill(null);
           predValues1d[lastIdx] = lastHonor;
@@ -1964,7 +1978,7 @@ async function renderChart() {
         }
 
         // 最終予測線（ドット: 比較線・1日後線と明確に区別）
-        if (pred.predictedFinal && lastIdx >= 0) {
+        if (showPredFinalToggle && pred.predictedFinal && lastIdx >= 0) {
           const predValueFin = Math.max(pred.predictedFinal, lastHonor);
           const predValuesFin = new Array(labels.length).fill(null);
           predValuesFin[lastIdx] = lastHonor;
@@ -1987,8 +2001,8 @@ async function renderChart() {
 
         // 予測情報テキスト
         const parts = [];
-        if (pred.predicted1d) parts.push(`1日後:${numFmt(pred.predicted1d)}`);
-        if (pred.predictedFinal) parts.push(`最終:${numFmt(pred.predictedFinal)}`);
+        if (showPred1dToggle && pred.predicted1d) parts.push(`1日後:${numFmt(pred.predicted1d)}`);
+        if (showPredFinalToggle && pred.predictedFinal) parts.push(`最終:${numFmt(pred.predictedFinal)}`);
         if (parts.length) {
           const methodTag = pred.method === 'ratio' ? '' : '(線形)';
           predInfo.push(`${TIER_LABELS[tier]} ${parts.join(' / ')}${methodTag}`);
