@@ -1876,6 +1876,21 @@ async function renderChart() {
     return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
   });
 
+  // 日付境界を検出（24:00 = 深夜0:00ライン / 7:00 = GBF日付変わりライン）複数日のみ描画
+  const boundaries = [];
+  for (let i = 1; i < labels.length; i++) {
+    const prevDate = labels[i - 1].substring(0, 10);
+    const currDate = labels[i].substring(0, 10);
+    const prevHH = parseInt(labels[i - 1].substring(11, 13));
+    const currHH = parseInt(labels[i].substring(11, 13));
+    if (prevDate !== currDate) {
+      boundaries.push({ idx: i, type: 'midnight' });
+    } else if (prevHH < 7 && currHH >= 7) {
+      boundaries.push({ idx: i, type: 'morning' });
+    }
+  }
+  const dayCount = new Set(labels.map(l => l.substring(0, 10))).size;
+
   const datasets = [];
   const isSpeed = chartType === 'speed';
   const useRelative = chartType === 'honor' && honorOrigin === 'rel';
@@ -2167,9 +2182,34 @@ async function renderChart() {
   const yLabelMaxLen = yActualMax != null ? honorFmt(yActualMax).length : 4;
   const yPadLeft = Math.max(4, yLabelMaxLen * (yFontSize * 0.65));
 
+  // 境界線プラグイン（0:00=青, 7:00=橙の縦線）複数日のみ描画、線のみ（ラベルなし）
+  const boundaryLinesPlugin = {
+    id: 'gbfBorderBoundaryLines',
+    afterDraw(chart) {
+      if (!boundaries.length || dayCount <= 1) return;
+      const ctx2 = chart.ctx;
+      const { top, bottom } = chart.chartArea;
+      const xAxis = chart.scales.x;
+      boundaries.forEach(b => {
+        if (b.idx >= labels.length) return;
+        const x = xAxis.getPixelForValue(b.idx);
+        ctx2.save();
+        ctx2.beginPath();
+        ctx2.setLineDash([4, 5]);
+        ctx2.strokeStyle = b.type === 'midnight' ? 'rgba(96,165,250,0.35)' : 'rgba(251,146,60,0.35)';
+        ctx2.lineWidth = 1;
+        ctx2.moveTo(x, top);
+        ctx2.lineTo(x, bottom);
+        ctx2.stroke();
+        ctx2.restore();
+      });
+    }
+  };
+
   chartInstance = new Chart(canvas, {
     type: 'line',
     data: { labels: shortLabels, datasets },
+    plugins: [boundaryLinesPlugin],
     options: {
       responsive: false,
       maintainAspectRatio: false,
