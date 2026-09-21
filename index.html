@@ -300,7 +300,7 @@ window.__STATIC_MODE__=true;
 window.__BORDER_SITE__=true;
 window.__STATIC_EVENT_URLS__={"1":"https://ev078.gbfranking.com/","3":"https://ev080.gbfranking.com/","4":"https://ev079.gbfranking.com/","5":"https://ev081.gbfranking.com/","6":"https://ev082.gbfranking.com/","7":"https://ev000.gbfranking.com/","10":"https://ev083.gbfranking.com/","11":"https://ev084.gbfranking.com/"};
 window.__STATIC_INDEX_URL__='https://gbfranking.com/';
-window.__STATIC_LIVE_URL__='';
+window.__STATIC_LIVE_URL__='https://live.gbfranking.com';
 window.__STATIC_GUILD_LATEST_URL__='https://ev083.gbfranking.com/guild/';
 window.__STATIC_EVENT_GUILD_URLS__={"6":"https://ev082.gbfranking.com/guild/","7":"https://ev000.gbfranking.com/guild/","10":"https://ev083.gbfranking.com/guild/"};
 (function(){
@@ -1056,6 +1056,56 @@ async function apiFetch(url) {
 }
 
 function numFmt(n) { return n == null ? '-' : n.toLocaleString('ja-JP'); }
+
+// グラフ表示専用: ラベル末尾の "HH:mm" を直近20分刻み(:00/:20/:40)に丸める
+// （実際の取得時刻は内部処理でそのまま使用し、表示のみ統一する）
+function roundTimeLabel(label) {
+  const m = String(label).match(/^(.*) (\d{1,2}):(\d{2})$/);
+  if (!m) return label;
+  const [, prefix, hhStr, mmStr] = m;
+  let hh = parseInt(hhStr), mm = parseInt(mmStr);
+  const roundedMin = Math.round(mm / 20) * 20;
+  hh = (hh + Math.floor(roundedMin / 60)) % 24;
+  mm = roundedMin % 60;
+  return `${prefix} ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
+
+// 古戦場スケジュールに基づく休み期間（夜間）の時間帯を算出
+// Day1=開催開始日 ... Day2=予選終了日 Day3=インターバル日 Day4-7=本戦1-4日目
+function computeRestWindows(startDateStr, mergeInterval) {
+  if (!startDateStr) return [];
+  const [y, m, d] = startDateStr.split('-').map(Number);
+  const dayDate = (offset) => new Date(y, m - 1, d + offset);
+  const at = (date, hh) => new Date(date.getFullYear(), date.getMonth(), date.getDate(), hh, 0, 0);
+  const windows = [];
+  if (mergeInterval) {
+    windows.push([at(dayDate(2), 0), at(dayDate(3), 7)]);   // 2日目24:00 〜 本戦1日目7:00
+  } else {
+    windows.push([at(dayDate(2), 0), at(dayDate(2), 7)]);   // 2日目24:00 〜 3日目7:00
+  }
+  windows.push([at(dayDate(4), 0), at(dayDate(4), 7)]);      // 本戦1日目24:00 〜 本戦2日目7:00
+  windows.push([at(dayDate(5), 0), at(dayDate(5), 7)]);      // 本戦2日目24:00 〜 本戦3日目7:00
+  windows.push([at(dayDate(6), 0), at(dayDate(6), 7)]);      // 本戦3日目24:00 〜 本戦4日目7:00
+  return windows;
+}
+
+// labels（"YYYY-MM-DD HH:mm:ss"形式）に対して休み期間の帯をラベル配列のインデックス範囲に変換
+function computeRestBands(labels, startDateStr, mergeInterval) {
+  if (!startDateStr || !labels.length) return [];
+  const fmt = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+  const bands = [];
+  for (const [startD, endD] of computeRestWindows(startDateStr, mergeInterval)) {
+    const startStr = fmt(startD), endStr = fmt(endD);
+    // 夜間は間引き取得等でラベルが疎な場合があるため、窓の直前の最後のラベル〜
+    // 窓の直後の最初のラベルまでを帯として描画し、データの空白区間を視覚的に覆う
+    let startIdx = -1;
+    for (let i = 0; i < labels.length; i++) { if (labels[i].slice(0, 16) < startStr) startIdx = i; else break; }
+    const endIdx = labels.findIndex(l => l.slice(0, 16) > endStr);
+    if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) continue;
+    bands.push({ startIdx, endIdx });
+  }
+  return bands;
+}
 
 function honorFmt(v) {
   if (v == null) return '-';
@@ -1876,19 +1926,8 @@ async function renderChart() {
     return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
   });
 
-  // 日付境界を検出（24:00 = 深夜0:00ライン / 7:00 = GBF日付変わりライン）複数日のみ描画
-  const boundaries = [];
-  for (let i = 1; i < labels.length; i++) {
-    const prevDate = labels[i - 1].substring(0, 10);
-    const currDate = labels[i].substring(0, 10);
-    const prevHH = parseInt(labels[i - 1].substring(11, 13));
-    const currHH = parseInt(labels[i].substring(11, 13));
-    if (prevDate !== currDate) {
-      boundaries.push({ idx: i, type: 'midnight' });
-    } else if (prevHH < 7 && currHH >= 7) {
-      boundaries.push({ idx: i, type: 'morning' });
-    }
-  }
+  // 休み期間（夜間）の帯を検出: 2日目24:00〜3日目7:00、本戦1〜3日目24:00〜翌7:00
+  const restBands = computeRestBands(labels, currentEvent?.start_date || null, false);
   const dayCount = new Set(labels.map(l => l.substring(0, 10))).size;
 
   const datasets = [];
@@ -2182,25 +2221,21 @@ async function renderChart() {
   const yLabelMaxLen = yActualMax != null ? honorFmt(yActualMax).length : 4;
   const yPadLeft = Math.max(4, yLabelMaxLen * (yFontSize * 0.65));
 
-  // 境界線プラグイン（0:00=青, 7:00=橙の縦線）複数日のみ描画、線のみ（ラベルなし）
+  // 休み期間（夜間）帯プラグイン: データ線の背面にグレーの帯を描画
   const boundaryLinesPlugin = {
     id: 'gbfBorderBoundaryLines',
-    afterDraw(chart) {
-      if (!boundaries.length || dayCount <= 1) return;
+    beforeDraw(chart) {
+      if (!restBands.length || dayCount <= 1) return;
       const ctx2 = chart.ctx;
       const { top, bottom } = chart.chartArea;
       const xAxis = chart.scales.x;
-      boundaries.forEach(b => {
-        if (b.idx >= labels.length) return;
-        const x = xAxis.getPixelForValue(b.idx);
+      restBands.forEach(band => {
+        if (band.startIdx >= labels.length) return;
+        const x0 = xAxis.getPixelForValue(band.startIdx);
+        const x1 = xAxis.getPixelForValue(band.endIdx);
         ctx2.save();
-        ctx2.beginPath();
-        ctx2.setLineDash([4, 5]);
-        ctx2.strokeStyle = b.type === 'midnight' ? 'rgba(96,165,250,0.35)' : 'rgba(251,146,60,0.35)';
-        ctx2.lineWidth = 1;
-        ctx2.moveTo(x, top);
-        ctx2.lineTo(x, bottom);
-        ctx2.stroke();
+        ctx2.fillStyle = 'rgba(148,163,184,0.10)';
+        ctx2.fillRect(x0, top, x1 - x0, bottom - top);
         ctx2.restore();
       });
     }
@@ -2208,7 +2243,7 @@ async function renderChart() {
 
   chartInstance = new Chart(canvas, {
     type: 'line',
-    data: { labels: shortLabels, datasets },
+    data: { labels: shortLabels.map(roundTimeLabel), datasets },
     plugins: [boundaryLinesPlugin],
     options: {
       responsive: false,
