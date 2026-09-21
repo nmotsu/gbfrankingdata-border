@@ -1596,8 +1596,10 @@ function computeRatioPrediction(tier, lastHonor, lastTime) {
   // 参照イベントの最終値
   const refFinal = refTierData[refTierData.length - 1].honor;
 
-  // 参照イベントの「当日24:00時点」の値を探す（同じ日番号・時刻00:00 = 翌日0:00 = 前日24:00相当）
-  const todayEndKey = endOfDayKey(currentRelKey);
+  // 参照イベントの「当日予測ゴール地点」の値を探す
+  // 予選1日目・インターバルは夜通し運用のため翌日7:00が到達目標、それ以外は当日24:00
+  const currentPeriod = getGBFPeriodName(lastTime, currentEvent.start_date);
+  const todayEndKey = todayGoalKey(currentRelKey, currentPeriod);
   let refAtTodayEnd = null;
   if (todayEndKey) {
     let closest = null, closestDist = Infinity;
@@ -1623,11 +1625,17 @@ function computeRatioPrediction(tier, lastHonor, lastTime) {
   return { predictedToday, predictedFinal };
 }
 
-// 相対キーの時刻部分を00:00に置き換える（同じ日番号の「当日24:00」＝翌日0:00相当を指す）
-function endOfDayKey(key) {
+// 当日予測のゴール地点となる相対キーを算出。
+// 予選1日目・インターバルはボーダーが夜通し稼働するため翌日7:00（＝次の日番号の07:00）、
+// それ以外（予選2日目・本戦1〜4日目）は当日24:00（＝同じ日番号の00:00）を目標とする。
+function todayGoalKey(key, period) {
   const m = key.match(/^d(\d+)_\d{2}:\d{2}$/);
   if (!m) return null;
-  return `d${m[1]}_00:00`;
+  const dayIdx = parseInt(m[1]);
+  if (period === '予選1日目' || period === 'インターバル') {
+    return `d${dayIdx + 1}_07:00`;
+  }
+  return `d${dayIdx}_00:00`;
 }
 
 // 相対キー間の距離（20分単位の差）
@@ -1643,6 +1651,19 @@ function relKeyDistance(key1, key2) {
   return Math.abs(v1 - v2);
 }
 
+
+// 当日予測のゴール地点（実時刻）を算出。
+// 予選1日目・インターバルは翌7:00、それ以外（予選2日目・本戦1〜4日目）は当日24:00。
+function computePredictionGoal(lastTime, startDateStr) {
+  if (!lastTime || !startDateStr) return null;
+  const period = getGBFPeriodName(lastTime, startDateStr);
+  const gbfDayStr = getGBFDay(lastTime);
+  const [y, m, d] = gbfDayStr.split('-').map(Number);
+  const needsNightGoal = period === '予選1日目' || period === 'インターバル';
+  return needsNightGoal
+    ? new Date(y, m - 1, d + 1, 7, 0, 0)   // 翌7:00
+    : new Date(y, m - 1, d + 1, 0, 0, 0);  // 当日24:00（＝翌日0:00）
+}
 
 // 線形予測（フォールバック用）
 // ボーダーが実際に止まるのは「予選2日目24:00〜3日目7:00」のみ（本戦1〜3日目の夜間・予選1日目の夜間は稼働継続）。
@@ -1667,12 +1688,17 @@ function computeLinearPrediction(tierData, lastHonor, lastTime, event) {
   const avgSpeed = recent.reduce((a, b) => a + b, 0) / recent.length;
   const ACTIVE_SNAPS_PER_DAY = 51;
 
-  // 当日予測: 直近の平均速度 × 当日24:00までの残り20分刻み数
-  // 0:00〜6:59は前日24:00〜24:59相当（GBF日切り替え前）のため、既に当日終了扱いで残り0とする
-  const timePart = (lastTime || '').split(' ')[1] || '00:00';
-  const [lastHH, lastMM] = timePart.split(':').map(Number);
-  const minutesUntilMidnight = lastHH < 7 ? 0 : (24 * 60 - (lastHH * 60 + lastMM));
-  const remainingSnapsToday = Math.max(0, Math.floor(minutesUntilMidnight / 20));
+  // 当日予測: 直近の平均速度 × ゴール地点までの残り20分刻み数
+  // ゴール地点は期間ごとに異なる（予選1日目・インターバルは翌7:00、それ以外は当日24:00）
+  let remainingSnapsToday = 0;
+  if (event?.start_date && lastTime) {
+    const goal = computePredictionGoal(lastTime, event.start_date);
+    if (goal) {
+      const lastMs = new Date(lastTime.replace(' ', 'T')).getTime();
+      const remainingMin = (goal.getTime() - lastMs) / 60000;
+      remainingSnapsToday = Math.max(0, Math.floor(remainingMin / 20));
+    }
+  }
   const predictedToday = lastHonor + Math.round(avgSpeed * remainingSnapsToday);
 
   // 最終予測: イベント終了まで残り時間 × 平均速度
