@@ -1029,6 +1029,8 @@ let honorOrigin = 'abs'; // 'abs' | 'rel'
 // Y軸スケールが引き伸ばされて現在地が潰れて見えることがあるため、デフォルトOFF）
 let showPredTodayToggle    = localStorage.getItem('border_show_pred_today')    !== '0';
 let showPredFinalToggle = localStorage.getItem('border_show_pred_final') === '1';
+// 排他制御（旧バージョンのlocalStorageで両方ONが残っている場合の保険。当日を優先）
+if (showPredTodayToggle && showPredFinalToggle) showPredFinalToggle = false;
 let chartInstance = null;
 let allDays = [];
 let autoTimer = null;
@@ -1643,10 +1645,14 @@ function relKeyDistance(key1, key2) {
 
 
 // 線形予測（フォールバック用）
+// ボーダーが実際に止まるのは「予選2日目24:00〜3日目7:00」のみ（本戦1〜3日目の夜間・予選1日目の夜間は稼働継続）。
+// そのため平均速度の算出はこの区間のみ除外し、それ以外の夜間データも有効活用する。
 function computeLinearPrediction(tierData, lastHonor, lastTime, event) {
+  const inactiveWindow = event?.start_date ? computeRestWindows(event.start_date, false)[0] : null;
   const activeData = tierData.filter(r => {
-    const hh = parseInt(r.captured_at.substring(11, 13));
-    return hh >= 7;
+    if (!inactiveWindow) return true;
+    const t = new Date(r.captured_at.replace(' ', 'T'));
+    return !(t >= inactiveWindow[0] && t <= inactiveWindow[1]);
   });
   if (activeData.length < 3) return null;
 
@@ -1857,16 +1863,21 @@ function updateSpeedBtn() {
   if (disabled && chartType === 'speed') setChartType('honor');
 }
 
+// 当日予測・最終予測は排他（どちらか一方のみON）。同じボタンを押すとOFFに戻る。
 function togglePred(kind) {
   if (kind === 'today') {
     showPredTodayToggle = !showPredTodayToggle;
-    document.getElementById('predtoday-toggle-btn')?.classList.toggle('active', showPredTodayToggle);
-    try { localStorage.setItem('border_show_pred_today', showPredTodayToggle ? '1' : '0'); } catch {}
+    if (showPredTodayToggle) showPredFinalToggle = false;
   } else {
     showPredFinalToggle = !showPredFinalToggle;
-    document.getElementById('predfin-toggle-btn')?.classList.toggle('active', showPredFinalToggle);
-    try { localStorage.setItem('border_show_pred_final', showPredFinalToggle ? '1' : '0'); } catch {}
+    if (showPredFinalToggle) showPredTodayToggle = false;
   }
+  document.getElementById('predtoday-toggle-btn')?.classList.toggle('active', showPredTodayToggle);
+  document.getElementById('predfin-toggle-btn')?.classList.toggle('active', showPredFinalToggle);
+  try {
+    localStorage.setItem('border_show_pred_today', showPredTodayToggle ? '1' : '0');
+    localStorage.setItem('border_show_pred_final', showPredFinalToggle ? '1' : '0');
+  } catch {}
   renderChart();
 }
 
@@ -2045,15 +2056,14 @@ async function renderChart() {
           const predValueFin = Math.max(pred.predictedFinal, lastHonor);
           const predValuesFin = new Array(labels.length).fill(null);
           predValuesFin[lastIdx] = lastHonor;
-          predValuesFin.push(null);
           predValuesFin.push(predValueFin);
           datasets.push({
             label: `${TIER_LABELS[tier]}(最終)`,
             data: predValuesFin,
             borderColor: TIER_COLORS[tier] + '99',
             backgroundColor: 'transparent',
-            pointRadius: [0, 0, 5],
-            pointStyle: ['circle', 'circle', 'triangle'],
+            pointRadius: [0, 5],
+            pointStyle: ['circle', 'triangle'],
             borderWidth: 1,
             borderDash: [2, 4],
             tension: 0,
